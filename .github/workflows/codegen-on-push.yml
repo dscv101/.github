@@ -1,37 +1,41 @@
-name: Codegen (on Agent OS spec push)
+# .github/workflows/codegen-on-push.yml
+name: Codegen on Spec Push
 
 on:
+  push:
+    paths:
+      - .agent-os/specs/**
+      - .specify/specs/**
   workflow_dispatch:
     inputs:
       prompt:
-        description: "Override prompt (optional)"
+        description: "Override prompt"
         required: false
+        default: ""
       spec_path:
-        description: "Override spec folder (e.g., .agent-os/specs/2025-10-01-feature-x)"
+        description: "Override spec path"
         required: false
+        default: ""
       wait:
-        description: "Wait for completion?"
-        type: boolean
-        default: true
+        description: "Wait for Codegen completion"
         required: false
-  push:
-    paths:
-      - ".agent-os/specs/**"
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
 
 jobs:
-  call-reusable:
-    uses: dscv101/.github/.github/workflows/codegen-agentos.yml@main
-    permissions:
-      contents: read
-    secrets:
-      CODEGEN_ORG_ID:  ${{ secrets.CODEGEN_ORG_ID }}
-      CODEGEN_TOKEN:   ${{ secrets.CODEGEN_TOKEN }}
-      CODEGEN_REPO_ID: ${{ secrets.CODEGEN_REPO_ID }}
+  run:
+    name: Run Codegen on push
+    uses: ./.github/workflows/codegen-agents.yml
     with:
-      target_repo:  ${{ github.repository }}
       require_agentos: true
-      python_version: "3.12"
-      prompt:     ${{ inputs.prompt }}
-      spec_path:  ${{ inputs.spec_path }}
-      wait:       ${{ inputs.wait }}
-      # specs_glob: ".agent-os/specs/*"   # optional override
+      wait: ${{ github.event_name == 'workflow_dispatch' && inputs.wait || true }}
+      prompt: ${{ github.event_name == 'workflow_dispatch' && inputs.prompt || '' }}
+      spec_path: ${{ github.event_name == 'workflow_dispatch' && inputs.spec_path || '' }}
+      target_repo: ${{ github.repository }}
+    secrets:
+      CODEGEN_ORG_ID: ${{ secrets.CODEGEN_ORG_ID }}
+      CODEGEN_TOKEN: ${{ secrets.CODEGEN_TOKEN }}
+      CODEGEN_REPO_ID: ${{ secrets.CODEGEN_REPO_ID }}

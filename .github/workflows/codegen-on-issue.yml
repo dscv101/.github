@@ -1,76 +1,106 @@
-name: Codegen (on Issue)
+# .github/workflows/codegen-on-issue.yml
+name: Codegen on Issues
 
 on:
   issues:
-    types: [opened, edited, labeled]
+    types:
+      - opened
+      - edited
+      - labeled
   workflow_dispatch:
     inputs:
+      prompt:
+        description: "Prompt override"
+        required: false
+        default: ""
+      spec_path:
+        description: "Spec path override"
+        required: false
+        default: ""
       wait:
-        description: "Wait for completion?"
-        type: boolean
+        description: "Wait for Codegen completion"
+        required: false
         default: true
+        type: boolean
+
+permissions:
+  contents: read
 
 jobs:
   parse:
+    name: Parse issue context
     runs-on: ubuntu-latest
     outputs:
-      prompt:     ${{ steps.out.outputs.prompt }}
-      spec_path:  ${{ steps.out.outputs.spec_path }}
-      should_run: ${{ steps.out.outputs.should_run }}
+      should-run: ${{ steps.prepare.outputs.should_run }}
+      prompt: ${{ steps.prepare.outputs.prompt }}
+      spec-path: ${{ steps.prepare.outputs.spec_path }}
+      wait: ${{ steps.prepare.outputs.wait }}
     steps:
-      - name: Parse issue → prompt/spec
-        id: out
-        shell: bash
+      - name: Prepare inputs
+        id: prepare
+        env:
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          set -e
-          LABELS=$(jq -r '.issue.labels[].name' "$GITHUB_EVENT_PATH" | tr '\n' ' ')
-          BODY=$(jq -r '.issue.body // ""' "$GITHUB_EVENT_PATH")
-          TITLE=$(jq -r '.issue.title' "$GITHUB_EVENT_PATH")
+          set -euo pipefail
+          python - <<'PY'
+import json
+import os
+import re
 
-          # Run only if label 'codegen' OR slash-command present
-          if [[ "$LABELS" == *"codegen"* || "$BODY" == *"/run-codegen"* ]]; then
-            echo "should_run=true" >> $GITHUB_OUTPUT
-          else
-            echo "should_run=false" >> $GITHUB_OUTPUT
-          fi
+with open(os.environ['GITHUB_EVENT_PATH'], 'r', encoding='utf-8') as fh:
+    event = json.load(fh)
 
-          # Prefer fenced ```prompt blocks; else title+body
-          PROMPT_BLOCK=$(awk '/^```prompt/{flag=1;next}/^```/{flag=0}flag' <<< "$BODY" || true)
-          if [ -z "$PROMPT_BLOCK" ]; then
-            {
-              echo "prompt<<'EOF'"
-              echo "$TITLE"
-              echo
-              echo "$BODY"
-              echo "EOF"
-            } >> $GITHUB_OUTPUT
-          else
-            {
-              echo "prompt<<'EOF'"
-              echo "$PROMPT_BLOCK"
-              echo "EOF"
-            } >> $GITHUB_OUTPUT
-          fi
+event_name = os.environ['EVENT_NAME']
+should_run = False
+prompt = ''
+spec_path = ''
+wait_flag = 'true'
 
-          # spec_path from 'spec_path: ...' or 'Spec: ...'
-          SPEC_PATH=$(printf "%s\n" "$BODY" | awk -F': ' '/^spec_path:|^Spec:/{print $2; exit}' || true)
-          echo "spec_path=${SPEC_PATH}" >> $GITHUB_OUTPUT
+if event_name == 'workflow_dispatch':
+    inputs = event.get('inputs', {})
+    prompt = inputs.get('prompt', '') or ''
+    spec_path = inputs.get('spec_path', '') or ''
+    wait_flag = 'true' if str(inputs.get('wait', 'true')).lower() != 'false' else 'false'
+    should_run = True
+else:
+    issue = event.get('issue') or {}
+    labels = {label.get('name', '').lower() for label in issue.get('labels', [])}
+    body = issue.get('body') or ''
+    title = issue.get('title') or ''
+    trigger = '/run-codegen' in body.lower() or 'codegen' in labels
+    should_run = bool(trigger)
+    if should_run:
+        fence = re.search(r"```prompt\n([\s\S]*?)```", body, re.IGNORECASE)
+        if fence:
+            prompt = fence.group(1).strip()
+        else:
+            prompt = f"Issue: {title}\n\n{body.strip()}".strip()
+        match = re.search(r"^spec_path\s*:\s*(.+)$", body, re.IGNORECASE | re.MULTILINE)
+        if match:
+            spec_path = match.group(1).strip()
+    else:
+        print('::notice::Issue missing codegen label or /run-codegen command; skipping.')
 
-  call-reusable:
-    if: ${{ needs.parse.outputs.should_run == 'true' || github.event_name == 'workflow_dispatch' }}
+output_path = os.environ['GITHUB_OUTPUT']
+with open(output_path, 'a', encoding='utf-8') as fh:
+    fh.write(f"should_run={'true' if should_run else 'false'}\n")
+    fh.write(f"prompt<<EOF\n{prompt}\nEOF\n")
+    fh.write(f"spec_path={spec_path}\n")
+    fh.write(f"wait={wait_flag}\n")
+PY
+
+  codegen:
+    name: Run Codegen from issue
     needs: parse
-    uses: dscv101/.github/.github/workflows/codegen-agentos.yml@main
-    permissions:
-      contents: read
-    secrets:
-      CODEGEN_ORG_ID:  ${{ secrets.CODEGEN_ORG_ID }}
-      CODEGEN_TOKEN:   ${{ secrets.CODEGEN_TOKEN }}
-      CODEGEN_REPO_ID: ${{ secrets.CODEGEN_REPO_ID }}
+    if: ${{ needs.parse.outputs.should-run == 'true' }}
+    uses: ./.github/workflows/codegen-agents.yml
     with:
-      target_repo:    ${{ github.repository }}
       require_agentos: true
-      python_version: "3.12"
-      wait:           ${{ inputs.wait }}
-      prompt:         ${{ needs.parse.outputs.prompt }}
-      spec_path:      ${{ needs.parse.outputs.spec_path }}
-      # specs_glob: ".agent-os/specs/*"   # optional override
+      prompt: ${{ needs.parse.outputs.prompt }}
+      spec_path: ${{ needs.parse.outputs['spec-path'] }}
+      wait: ${{ needs.parse.outputs.wait == 'true' }}
+      target_repo: ${{ github.repository }}
+    secrets:
+      CODEGEN_ORG_ID: ${{ secrets.CODEGEN_ORG_ID }}
+      CODEGEN_TOKEN: ${{ secrets.CODEGEN_TOKEN }}
+      CODEGEN_REPO_ID: ${{ secrets.CODEGEN_REPO_ID }}
