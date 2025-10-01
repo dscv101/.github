@@ -131,10 +131,6 @@ jobs:
             echo "::error::Unable to parse repository slug from git remote URL."
             exit 1
           fi
-          if [ -z "${repo_slug}" ]; then
-            echo "::error::Failed to parse repository slug from git remote."
-            exit 1
-          fi
           if [ "${repo_slug}" != "${target_repo}" ]; then
             echo "::error::Git remote slug '${repo_slug}' does not match expected '${target_repo}'."
             exit 1
