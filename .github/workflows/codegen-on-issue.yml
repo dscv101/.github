@@ -1,0 +1,57 @@
+name: Codegen (on Issue)
+
+on:
+  issues:
+    types: [opened, edited, labeled]
+  workflow_dispatch:
+    inputs:
+      wait:
+        type: boolean
+        default: true
+
+jobs:
+  # Optional: parse inputs from the issue
+  parse:
+    runs-on: ubuntu-latest
+    outputs:
+      prompt:    ${{ steps.out.outputs.prompt }}
+      spec_path: ${{ steps.out.outputs.spec_path }}
+      should_run: ${{ steps.out.outputs.should_run }}
+    steps:
+      - name: Compute prompt/spec_path from issue
+        id: out
+        env:
+          TITLE: ${{ github.event.issue.title }}
+          BODY:  ${{ github.event.issue.body }}
+          LABELS_CSV: ${{ join(github.event.issue.labels.*.name, ',') }}
+        run: |
+          set -e
+          # Should run? label=codegen OR body contains /run-codegen
+          if [[ "$LABELS_CSV" == *"codegen"* || "$BODY" == *"/run-codegen"* ]]; then
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          else
+            echo "should_run=false" >> $GITHUB_OUTPUT
+          fi
+          # Prompt: prefer fenced ```prompt blocks; else title + body
+          PROMPT_BLOCK=$(awk '/^```prompt/{flag=1;next}/^```/{flag=0}flag' <<< "$BODY" || true)
+          if [ -z "$PROMPT_BLOCK" ]; then
+            printf "prompt<<'EOF'\n%s\n\n%s\nEOF\n" "$TITLE" "$BODY" >> $GITHUB_OUTPUT
+          else
+            printf "prompt<<'EOF'\n%s\nEOF\n" "$PROMPT_BLOCK" >> $GITHUB_OUTPUT
+          fi
+          # spec_path: from a line like 'spec_path: PATH' or 'Spec: PATH'
+          SPEC_PATH=$(printf "%s\n" "$BODY" | awk -F': ' '/^spec_path:|^Spec:/{print $2; exit}' || true)
+          echo "spec_path=${SPEC_PATH}" >> $GITHUB_OUTPUT
+
+  call-reusable:
+    if: ${{ needs.parse.outputs.should_run == 'true' || github.event_name == 'workflow_dispatch' }}
+    needs: parse
+    uses: dscv101/.github/.github/workflows/codegen-agentos.yml@main
+    secrets:
+      CODEGEN_ORG_ID: ${{ secrets.CODEGEN_ORG_ID }}
+      CODEGEN_TOKEN:  ${{ secrets.CODEGEN_TOKEN }}
+    with:
+      prompt:       ${{ needs.parse.outputs.prompt }}
+      spec_path:    ${{ needs.parse.outputs.spec_path }}
+      wait:         ${{ inputs.wait || true }}
+      python_version: "3.12"
