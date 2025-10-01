@@ -1,0 +1,15 @@
+name: Run Codegen
+description: Trigger Codegen with a prompt and/or Agent OS spec
+labels: [codegen]
+body:
+  - type: textarea
+    id: prompt
+    attributes:
+      label: Prompt
+      description: High-level instructions or paste a ```prompt block
+      render: bash
+  - type: input
+    id: spec_path
+    attributes:
+      label: spec_path
+      placeholder: .agent-os/specs/2025-10-01-feature-x

@@ -1,0 +1,114 @@
+name: reusable-codegen-agentos
+
+on:
+  workflow_call:
+    inputs:
+      prompt:
+        type: string
+        required: false
+        default: ""
+      spec_path:
+        type: string
+        required: false
+        default: ""
+      wait:
+        type: boolean
+        required: false
+        default: true
+      python_version:
+        type: string
+        required: false
+        default: "3.12"
+      specs_glob:
+        type: string
+        required: false
+        default: ".agent-os/specs/*"
+    secrets:
+      CODEGEN_ORG_ID:
+        required: true
+      CODEGEN_TOKEN:
+        required: true
+
+jobs:
+  run-codegen:
+    runs-on: ubuntu-latest
+    # unique per repo+ref to avoid overlapping runs
+    concurrency:
+      group: codegen-${{ github.repository }}-${{ github.ref }}
+      cancel-in-progress: false
+    permissions: {}  # Codegen's GitHub App handles PRs
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Install Codegen SDK
+        run: pip install --upgrade codegen
+
+      - name: Verify Agent OS presence
+        run: |
+          test -d .agent-os || { echo "::error::Missing .agent-os (commit Agent OS to repo)"; exit 1; }
+          ls -R .agent-os | head -100
+
+      - name: Trigger Codegen (spec- or prompt-driven)
+        env:
+          CODEGEN_ORG_ID: ${{ secrets.CODEGEN_ORG_ID }}
+          CODEGEN_TOKEN: ${{ secrets.CODEGEN_TOKEN }}
+          PROMPT_INPUT:  ${{ inputs.prompt }}
+          SPEC_PATH:     ${{ inputs.spec_path }}
+          SPECS_GLOB:    ${{ inputs.specs_glob }}
+          WAIT:          ${{ inputs.wait }}
+          TARGET_REPO:   ${{ github.repository }}
+        run: |
+          python - <<'PY'
+          import os, time
+          from pathlib import Path
+
+          try:
+              from codegen.agents.agent import Agent
+          except Exception:
+              from codegen import Agent
+
+          org_id = os.environ["CODEGEN_ORG_ID"]
+          token  = os.environ["CODEGEN_TOKEN"]
+          repo   = os.environ.get("TARGET_REPO")
+          prompt = (os.environ.get("PROMPT_INPUT") or "").strip()
+          spec_path = (os.environ.get("SPEC_PATH") or "").strip()
+          specs_glob = os.environ.get("SPECS_GLOB") or ".agent-os/specs/*"
+
+          # Build a prompt from the newest spec if none is provided
+          if not prompt:
+              spec_dir = Path(spec_path) if spec_path else (sorted(Path().glob(specs_glob)) or [None])[-1]
+              if spec_dir is None or not spec_dir.exists():
+                  raise SystemExit("No prompt provided and no spec found. Provide inputs.prompt or inputs.spec_path.")
+              prompt = f"""
+              In repo {repo}, implement the tasks in {spec_dir}/tasks.md,
+              following the spec in {spec_dir} and our standards in .agent-os/standards.
+              Create a feature branch and open a PR with tests passing.
+              """
+
+          print("=== Prompt ===\n" + prompt.strip() + "\n==============")
+
+          agent = Agent(org_id=org_id, token=token)
+          task = agent.run(prompt=prompt)
+          print(f"Task started -> {task.status}")
+
+          wait = str(os.environ.get("WAIT", "true")).lower() in ("1","true","yes","on")
+          if wait:
+              for i in range(120):  # ~30 minutes @15s
+                  task.refresh()
+                  print(f"[{i+1}] status={task.status}")
+                  if task.status in {"completed","failed","canceled"}:
+                      break
+                  time.sleep(15)
+              print("Final status:", task.status)
+              try:
+                  print("Result:", task.result)
+              except Exception:
+                  pass
+          else:
+              print("Not waiting for completion.")
+          PY

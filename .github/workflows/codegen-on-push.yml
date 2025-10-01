@@ -1,0 +1,32 @@
+name: Codegen (on Agent OS spec push)
+
+on:
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: "Override prompt (optional)"
+        required: false
+      spec_path:
+        description: "Override spec folder (e.g. .agent-os/specs/2025-10-01-feature-x)"
+        required: false
+      wait:
+        description: "Wait for completion?"
+        type: boolean
+        default: true
+        required: false
+  push:
+    paths:
+      - ".agent-os/specs/**"
+
+jobs:
+  call-reusable:
+    uses: dscv101/.github/.github/workflows/codegen-agentos.yml@main
+    secrets:
+      CODEGEN_ORG_ID: ${{ secrets.CODEGEN_ORG_ID }}
+      CODEGEN_TOKEN:  ${{ secrets.CODEGEN_TOKEN }}
+    with:
+      prompt:       ${{ inputs.prompt }}
+      spec_path:    ${{ inputs.spec_path }}
+      wait:         ${{ inputs.wait }}
+      python_version: "3.12"
+      # specs_glob: ".agent-os/specs/*"   # customize if you use another path
