@@ -19,7 +19,7 @@ on:
         required: false
         default: ""
       require_agentos:
-        description: "Require .agent-os/ to be present in the repo (false for first-time seeding runs)"
+        description: "Require .agent-os/ to be present (false for first-time seeding)"
         type: boolean
         required: false
         default: true
@@ -57,7 +57,8 @@ jobs:
       contents: read
 
     env:
-      TARGET_REPO: ${{ inputs.target_repo || github.repository }}
+      # Resolve intended repo once; callers can override via input.
+      TARGET_REPO: ${{ inputs.target_repo != '' && inputs.target_repo || github.repository }}
 
     steps:
       - name: Guard: no secrets in forked PRs
@@ -77,7 +78,7 @@ jobs:
       - name: Install Codegen SDK
         run: pip install --upgrade codegen
 
-      - name: Preflight: verify required secrets and compute repo slug
+      - name: Preflight: verify secrets & repo slug
         id: preflight
         env:
           CODEGEN_ORG_ID:  ${{ secrets.CODEGEN_ORG_ID }}
@@ -97,14 +98,13 @@ jobs:
             echo "::error:: Repo mismatch. Expected ${TARGET_REPO}, got ${REPO_SLUG}."
             exit 1
           fi
-
           echo "::notice:: Preflight OK. TARGET_REPO=${TARGET_REPO} (Codegen repo pinned via secret; value hidden)"
 
       - name: Verify Agent OS presence (non-seeding runs)
         if: ${{ inputs.require_agentos }}
         run: |
           if [ ! -d ".agent-os" ]; then
-            echo "::error::.agent-os/ not found. For first-time seeding runs, call this reusable with require_agentos=false."
+            echo "::error::.agent-os/ not found. For first-time seeding, call with require_agentos=false."
             exit 1
           fi
           echo "::notice::.agent-os/ detected:"
@@ -121,7 +121,6 @@ jobs:
           SPEC_PATH:     ${{ inputs.spec_path }}
           SPECS_GLOB:    ${{ inputs.specs_glob }}
           TARGET_REPO:   ${{ env.TARGET_REPO }}
-          GITHUB_OUTPUT: ${{ github.output }}
         run: |
           python - <<'PY'
           import os, sys
@@ -155,11 +154,12 @@ jobs:
               ONLY operate on {target_repo}. Do not touch any other repository.
               """.strip()
 
-          # emit to GITHUB_OUTPUT
+          # emit to $GITHUB_OUTPUT (already provided by runner)
           with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
               fh.write("prompt<<EOF\n")
               fh.write(prompt + "\n")
               fh.write("EOF\n")
+
           print("Built prompt:")
           print(prompt)
           PY
@@ -240,7 +240,6 @@ jobs:
               if pr_url:
                   print(f"PR URL: {pr_url}")
 
-          # If completed with no PR URL detected, leave a helpful note
           if waitflag and task.status == "completed" and not pr_url:
               print("::notice:: No PR URL detected in task output. If changes were made, the PR should still be visible in GitHub.")
           PY
