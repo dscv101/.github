@@ -19,7 +19,7 @@ on:
         required: false
         default: ""
       require_agentos:
-        description: "Require .agent-os/ to be present in the repo (set false for first-time seeding runs)"
+        description: "Require .agent-os/ to be present in the repo (false for first-time seeding runs)"
         type: boolean
         required: false
         default: true
@@ -40,29 +40,24 @@ on:
         default: ""
     secrets:
       CODEGEN_ORG_ID:
-        description: "Codegen organization ID"
         required: true
       CODEGEN_TOKEN:
-        description: "Codegen API token"
         required: true
       CODEGEN_REPO_ID:
-        description: "Codegen repository ID (pins the correct repo on the backend)"
         required: true
 
 jobs:
   run-codegen:
-    # Avoid overlapping runs per repo+ref
     concurrency:
       group: codegen-${{ github.repository }}-${{ github.ref }}
       cancel-in-progress: false
 
     runs-on: ubuntu-latest
     permissions:
-      contents: read   # required for actions/checkout
+      contents: read
 
     env:
-      # Resolve the intended repo slug once (owner/name). Callers can override via input.
-      TARGET_REPO: ${{ inputs.target_repo != '' && inputs.target_repo || github.repository }}
+      TARGET_REPO: ${{ inputs.target_repo || github.repository }}
 
     steps:
       - name: Guard: no secrets in forked PRs
@@ -84,31 +79,26 @@ jobs:
 
       - name: Preflight: verify required secrets and compute repo slug
         id: preflight
-        shell: bash
         env:
-          CODEGEN_ORG_ID: ${{ secrets.CODEGEN_ORG_ID }}
-          CODEGEN_TOKEN:  ${{ secrets.CODEGEN_TOKEN }}
+          CODEGEN_ORG_ID:  ${{ secrets.CODEGEN_ORG_ID }}
+          CODEGEN_TOKEN:   ${{ secrets.CODEGEN_TOKEN }}
           CODEGEN_REPO_ID: ${{ secrets.CODEGEN_REPO_ID }}
-          TARGET_REPO: ${{ env.TARGET_REPO }}
+          TARGET_REPO:     ${{ env.TARGET_REPO }}
         run: |
           set -euo pipefail
-
-          # Verify secrets present (do not print values)
-          [ -n "${CODEGEN_ORG_ID}" ] || { echo "::error:: Missing secret CODEGEN_ORG_ID"; exit 1; }
-          [ -n "${CODEGEN_TOKEN}" ]  || { echo "::error:: Missing secret CODEGEN_TOKEN"; exit 1; }
+          [ -n "${CODEGEN_ORG_ID}" ]  || { echo "::error:: Missing secret CODEGEN_ORG_ID"; exit 1; }
+          [ -n "${CODEGEN_TOKEN}" ]   || { echo "::error:: Missing secret CODEGEN_TOKEN"; exit 1; }
           [ -n "${CODEGEN_REPO_ID}" ] || { echo "::error:: Missing secret CODEGEN_REPO_ID"; exit 1; }
 
-          # Determine checked-out repo slug from git remote
           REPO_SLUG="$(git config --get remote.origin.url | sed -E 's#.*github.com[:/](.+?)(\.git)?$#\1#')"
           echo "repo_slug=${REPO_SLUG}" >> "$GITHUB_OUTPUT"
 
-          # Must match the job's TARGET_REPO (owner/name)
           if [ "${REPO_SLUG}" != "${TARGET_REPO}" ]; then
             echo "::error:: Repo mismatch. Expected ${TARGET_REPO}, got ${REPO_SLUG}."
             exit 1
           fi
 
-          echo "::notice:: Preflight OK. TARGET_REPO=${TARGET_REPO}  (CODEGEN_REPO_ID is set; value hidden)"
+          echo "::notice:: Preflight OK. TARGET_REPO=${TARGET_REPO} (Codegen repo pinned via secret; value hidden)"
 
       - name: Verify Agent OS presence (non-seeding runs)
         if: ${{ inputs.require_agentos }}
@@ -126,66 +116,64 @@ jobs:
 
       - name: Build prompt or use provided
         id: prompt
-        shell: python
         env:
           PROMPT_INPUT:  ${{ inputs.prompt }}
           SPEC_PATH:     ${{ inputs.spec_path }}
           SPECS_GLOB:    ${{ inputs.specs_glob }}
           TARGET_REPO:   ${{ env.TARGET_REPO }}
+          GITHUB_OUTPUT: ${{ github.output }}
         run: |
+          python - <<'PY'
           import os, sys
           from pathlib import Path
 
-          prompt = (os.environ.get("PROMPT_INPUT") or "").strip()
-          spec_path = (os.environ.get("SPEC_PATH") or "").strip()
-          specs_glob = (os.environ.get("SPECS_GLOB") or "").strip()
+          prompt      = (os.environ.get("PROMPT_INPUT") or "").strip()
+          spec_path   = (os.environ.get("SPEC_PATH") or "").strip()
+          specs_glob  = (os.environ.get("SPECS_GLOB") or "").strip()
           target_repo = os.environ["TARGET_REPO"]
 
           def newest(glob: str):
-            ps = sorted(Path().glob(glob))
-            return ps[-1] if ps else None
+              ps = sorted(Path().glob(glob))
+              return ps[-1] if ps else None
 
-          # If no explicit prompt, build from the latest spec (Agent OS or Spec Kit)
           if not prompt:
-            spec_dir = Path(spec_path) if spec_path else (
-              newest(specs_glob) if specs_glob else
-              (newest(".agent-os/specs/*") or newest(".specify/specs/*"))
-            )
-            if not spec_dir or not spec_dir.exists():
-              print("::error:: No prompt and no spec found (.agent-os/specs or .specify/specs).")
-              sys.exit(1)
+              spec_dir = Path(spec_path) if spec_path else (
+                  newest(specs_glob) if specs_glob else
+                  (newest(".agent-os/specs/*") or newest(".specify/specs/*"))
+              )
+              if not spec_dir or not spec_dir.exists():
+                  print("::error:: No prompt and no spec found (.agent-os/specs or .specify/specs).")
+                  sys.exit(1)
+              has_standards = Path(".agent-os/standards").exists()
+              standards_hint = " and our standards in .agent-os/standards" if has_standards else ""
+              prompt = f"""
+              [MODE=RUN_SPEC]
+              [REPO:{target_repo}]
+              In repo {target_repo}, implement the tasks in {spec_dir}/tasks.md,
+              following the spec in {spec_dir}{standards_hint}.
+              Create a feature branch and open a PR with tests passing.
+              ONLY operate on {target_repo}. Do not touch any other repository.
+              """.strip()
 
-            has_standards = Path(".agent-os/standards").exists()
-            standards_hint = " and our standards in .agent-os/standards" if has_standards else ""
-
-            prompt = f"""
-            [MODE=RUN_SPEC]
-            [REPO:{target_repo}]
-            In repo {target_repo}, implement the tasks in {spec_dir}/tasks.md,
-            following the spec in {spec_dir}{standards_hint}.
-            Create a feature branch and open a PR with tests passing.
-            ONLY operate on {target_repo}. Do not touch any other repository.
-            """.strip()
-
-          # Emit to output
-          prompt = "\n".join(line.rstrip() for line in prompt.splitlines())
-          print(f"PROMPT<<'EOF'\n{prompt}\nEOF")
+          # emit to GITHUB_OUTPUT
           with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
-            fh.write(f"prompt<<EOF\n{prompt}\nEOF\n")
+              fh.write("prompt<<EOF\n")
+              fh.write(prompt + "\n")
+              fh.write("EOF\n")
+          print("Built prompt:")
+          print(prompt)
+          PY
 
       - name: Trigger Codegen (hardened)
         env:
-          # Codegen auth + explicit repo pin
           CODEGEN_ORG_ID:  ${{ secrets.CODEGEN_ORG_ID }}
           CODEGEN_TOKEN:   ${{ secrets.CODEGEN_TOKEN }}
           CODEGEN_REPO_ID: ${{ secrets.CODEGEN_REPO_ID }}
-
-          # Behavior
-          WAIT:          ${{ inputs.wait }}
-          TARGET_REPO:   ${{ env.TARGET_REPO }}
-          PROMPT_TEXT:   ${{ steps.prompt.outputs.prompt }}
-        shell: python
+          WAIT:            ${{ inputs.wait }}
+          TARGET_REPO:     ${{ env.TARGET_REPO }}
+          PROMPT_TEXT:     ${{ steps.prompt.outputs.prompt }}
         run: |
+          python - <<'PY'
           import os, re, sys, time
 
           # Import SDK (support older/newer structures)
@@ -194,40 +182,37 @@ jobs:
           except Exception:
               from codegen import Agent  # type: ignore
 
-          org_id  = (os.environ.get("CODEGEN_ORG_ID") or "").strip()
-          token   = (os.environ.get("CODEGEN_TOKEN")  or "").strip()
-          repo_id = (os.environ.get("CODEGEN_REPO_ID") or "").strip()
-          target_repo = (os.environ.get("TARGET_REPO") or "").strip()
-          prompt = (os.environ.get("PROMPT_TEXT") or "").strip()
-          wait   = (os.environ.get("WAIT","true").lower() in ("1","true","yes","on"))
+          org_id   = (os.environ.get("CODEGEN_ORG_ID")  or "").strip()
+          token    = (os.environ.get("CODEGEN_TOKEN")   or "").strip()
+          repo_id  = (os.environ.get("CODEGEN_REPO_ID") or "").strip()
+          target   = (os.environ.get("TARGET_REPO")     or "").strip()
+          prompt   = (os.environ.get("PROMPT_TEXT")     or "").strip()
+          waitflag = (os.environ.get("WAIT","true").lower() in ("1","true","yes","on"))
 
-          if not org_id or not token or not repo_id or not target_repo or not prompt:
+          if not all([org_id, token, repo_id, target, prompt]):
               print("::error:: Missing one of required env vars (ORG_ID / TOKEN / REPO_ID / TARGET_REPO / PROMPT).")
               sys.exit(1)
 
-          # Preflight log (no secrets)
-          print(f"Org={org_id[:4]}...  RepoID=****  TargetRepo={target_repo}")
+          print(f"Org={org_id[:4]}...  RepoID=****  TargetRepo={target}")
           print("=== Prompt ==="); print(prompt); print("==============")
 
-          # Pin the backend repo via environment for the SDK call
-          os.environ["REPOSITORY_ID"]  = repo_id
+          # Pin backend repo via env for the SDK call
+          os.environ["REPOSITORY_ID"]   = repo_id
           os.environ["CODEGEN_REPO_ID"] = repo_id
 
-          # Run the agent (Agent.run only accepts prompt; repo comes from env)
           try:
               agent = Agent(org_id=org_id, token=token)
-              task = agent.run(prompt=prompt)
+              task = agent.run(prompt=prompt)   # repo is taken from env
           except Exception as e:
               msg = str(e)
               if "401" in msg or "Unauthorized" in msg:
-                  print("::error:: Codegen returned 401 Unauthorized. Check CODEGEN_TOKEN / CODEGEN_ORG_ID and rerun.")
+                  print("::error:: Codegen 401 Unauthorized. Check CODEGEN_TOKEN / CODEGEN_ORG_ID and rerun.")
               raise
 
           print(f"Task started -> {task.status}")
 
-          # Poll and validate the PR URL belongs to TARGET_REPO
-          pr_url, pr_repo, pr_mismatch = None, None, False
-          if wait:
+          pr_url = None
+          if waitflag:
               for i in range(120):  # ~30m @15s
                   try:
                       task.refresh()
@@ -235,20 +220,18 @@ jobs:
                       print(f"[{i+1}] refresh error: {e}")
                   else:
                       print(f"[{i+1}] status={task.status}")
-
-                      # Try to extract PR URL early from task.result (best-effort)
                       try:
                           res = str(getattr(task, "result", "") or "")
                           m = re.search(r"https?://github\.com/([^/\s]+)/([^/\s]+)/pull/\d+", res)
                           if m:
                               pr_repo = f"{m.group(1)}/{m.group(2)}"
                               pr_url  = m.group(0)
-                              if pr_repo != target_repo:
-                                  pr_mismatch = True
-                                  break
+                              if pr_repo != target:
+                                  print(f"::error:: Codegen opened PR in {pr_repo}, but TARGET_REPO is {target}.")
+                                  sys.exit(1)
+                              break
                       except Exception:
                           pass
-
                       if task.status in {"completed","failed","canceled"}:
                           break
                   time.sleep(15)
@@ -257,10 +240,7 @@ jobs:
               if pr_url:
                   print(f"PR URL: {pr_url}")
 
-          if pr_mismatch:
-              print(f"::error:: Codegen opened PR in {pr_repo}, but TARGET_REPO is {target_repo}.")
-              sys.exit(1)
-
-          # If no PR found at completion, provide a helpful hint
-          if wait and task.status == "completed" and not pr_url:
+          # If completed with no PR URL detected, leave a helpful note
+          if waitflag and task.status == "completed" and not pr_url:
               print("::notice:: No PR URL detected in task output. If changes were made, the PR should still be visible in GitHub.")
+          PY
