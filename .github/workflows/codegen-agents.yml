@@ -107,25 +107,28 @@ jobs:
           fi
 
           target_repo="${TARGET_REPO_INPUT:-$GITHUB_REPOSITORY}"
-          repo_slug=$(ORIGIN_URL="${origin_url}" python - <<'PY'
-import os
-origin = os.environ.get('ORIGIN_URL', '').strip()
-slug = ''
-if origin.startswith('git@'):
-    parts = origin.split(':', 1)
-    if len(parts) == 2:
-        slug = parts[1]
-elif 'github.com/' in origin:
-    slug = origin.split('github.com/', 1)[1]
-if slug.endswith('.git'):
-    slug = slug[:-4]
-if not slug:
-    raise SystemExit('::error::Unable to parse repository slug from git remote URL.')
-print(slug)
-PY
-)
+          repo_slug="${origin_url}"
+          case "${repo_slug}" in
+            git@github.com:*)
+              repo_slug="${repo_slug#git@github.com:}"
+              ;;
+            ssh://git@github.com/*)
+              repo_slug="${repo_slug#ssh://git@github.com/}"
+              ;;
+            https://github.com/*)
+              repo_slug="${repo_slug#https://github.com/}"
+              ;;
+            http://github.com/*)
+              repo_slug="${repo_slug#http://github.com/}"
+              ;;
+            git://github.com/*)
+              repo_slug="${repo_slug#git://github.com/}"
+              ;;
+          esac
+          repo_slug="${repo_slug%.git}"
+          repo_slug="${repo_slug#/}"
           if [ -z "${repo_slug}" ]; then
-            echo "::error::Failed to parse repository slug from git remote."
+            echo "::error::Unable to parse repository slug from git remote URL."
             exit 1
           fi
           if [ "${repo_slug}" != "${target_repo}" ]; then
@@ -385,3 +388,6 @@ PY
             echo "::notice::Codegen PR: ${pr_url}"
           else
             echo "::notice::Codegen task completed without PR URL."
+
+          fi
+
