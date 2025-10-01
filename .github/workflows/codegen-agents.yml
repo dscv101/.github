@@ -1,0 +1,395 @@
+# .github/workflows/codegen-agents.yml
+name: Codegen Agents
+
+on:
+  workflow_call:
+    inputs:
+      prompt:
+        description: "Optional prompt to pass to Codegen"
+        required: false
+        type: string
+        default: ""
+      spec_path:
+        description: "Explicit spec path"
+        required: false
+        type: string
+        default: ""
+      specs_glob:
+        description: "Glob override for discovering specs"
+        required: false
+        type: string
+        default: ""
+      require_agentos:
+        description: "Require .agent-os directory to exist"
+        required: false
+        type: boolean
+        default: true
+      wait:
+        description: "Wait for remote task completion"
+        required: false
+        type: boolean
+        default: true
+      python_version:
+        description: "Python version for SDK"
+        required: false
+        type: string
+        default: "3.12"
+      target_repo:
+        description: "Expected GitHub repository slug"
+        required: false
+        type: string
+        default: ""
+    secrets:
+      CODEGEN_ORG_ID:
+        required: true
+      CODEGEN_TOKEN:
+        required: true
+      CODEGEN_REPO_ID:
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codegen-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  run:
+    name: Run Codegen Agent
+    runs-on: ubuntu-latest
+    env:
+      PYTHONWARNINGS: ignore
+    steps:
+      - name: Guard forked pull requests
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork }}
+        run: |
+          echo "::error::Codegen workflows do not run on pull requests from forks."
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Install Codegen SDK
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --upgrade codegen
+
+      - name: Preflight validation
+        id: preflight
+        env:
+          CODEGEN_ORG_ID: ${{ secrets.CODEGEN_ORG_ID }}
+          CODEGEN_TOKEN: ${{ secrets.CODEGEN_TOKEN }}
+          TARGET_REPO_INPUT: ${{ inputs.target_repo }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CODEGEN_ORG_ID:-}" ]; then
+            echo "::error::Missing CODEGEN_ORG_ID secret."
+            exit 1
+          fi
+          if [ -z "${CODEGEN_TOKEN:-}" ]; then
+            echo "::error::Missing CODEGEN_TOKEN secret."
+            exit 1
+          fi
+
+          origin_url=$(git config --get remote.origin.url || true)
+          if [ -z "${origin_url}" ]; then
+            echo "::error::Unable to determine git remote origin URL."
+            exit 1
+          fi
+
+          target_repo="${TARGET_REPO_INPUT:-$GITHUB_REPOSITORY}"
+          repo_slug="${origin_url}"
+          case "${repo_slug}" in
+            git@github.com:*)
+              repo_slug="${repo_slug#git@github.com:}"
+              ;;
+            ssh://git@github.com/*)
+              repo_slug="${repo_slug#ssh://git@github.com/}"
+              ;;
+            https://github.com/*)
+              repo_slug="${repo_slug#https://github.com/}"
+              ;;
+            http://github.com/*)
+              repo_slug="${repo_slug#http://github.com/}"
+              ;;
+            git://github.com/*)
+              repo_slug="${repo_slug#git://github.com/}"
+              ;;
+          esac
+          repo_slug="${repo_slug%.git}"
+          repo_slug="${repo_slug#/}"
+          if [ -z "${repo_slug}" ]; then
+            echo "::error::Unable to parse repository slug from git remote URL."
+            exit 1
+          fi
+          if [ -z "${repo_slug}" ]; then
+            echo "::error::Failed to parse repository slug from git remote."
+            exit 1
+          fi
+          if [ "${repo_slug}" != "${target_repo}" ]; then
+            echo "::error::Git remote slug '${repo_slug}' does not match expected '${target_repo}'."
+            exit 1
+          fi
+          {
+            echo "target-repo=${target_repo}"
+            echo "repo-slug=${repo_slug}"
+          } >>"${GITHUB_OUTPUT}"
+
+      - name: Resolve Codegen repository id
+        id: repo_id
+        env:
+          CODEGEN_REPO_ID_SECRET: ${{ secrets.CODEGEN_REPO_ID }}
+        run: |
+          set -euo pipefail
+          if [ -n "${CODEGEN_REPO_ID_SECRET:-}" ]; then
+            {
+              printf 'repo-id=%s\n' "${CODEGEN_REPO_ID_SECRET}"
+            } >>"${GITHUB_OUTPUT}"
+            echo "::notice::Using Codegen repository id from secret."
+            exit 0
+          fi
+          if [ ! -f .codegen/repo-id ]; then
+            echo "::error::Codegen repository id not provided. Add CODEGEN_REPO_ID secret or commit .codegen/repo-id."
+            exit 1
+          fi
+          repo_id=$(head -n 1 .codegen/repo-id | tr -d '\r\n\t ')
+          if [ -z "${repo_id}" ]; then
+            echo "::error::File .codegen/repo-id is empty."
+            exit 1
+          fi
+          {
+            printf 'repo-id=%s\n' "${repo_id}"
+          } >>"${GITHUB_OUTPUT}"
+          echo "::notice::Using Codegen repository id from .codegen/repo-id."
+
+      - name: Require Agent OS directory
+        if: ${{ inputs.require_agentos }}
+        run: |
+          if [ ! -d .agent-os ]; then
+            echo "::error::.agent-os directory is required for this workflow."
+            exit 1
+          fi
+
+      - name: Prepare prompt
+        id: prompt
+        env:
+          INPUT_PROMPT: ${{ inputs.prompt }}
+          INPUT_SPEC_PATH: ${{ inputs.spec_path }}
+          INPUT_SPECS_GLOB: ${{ inputs.specs_glob }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+import glob
+import pathlib
+import os
+
+def read_text(path: pathlib.Path) -> str:
+    try:
+        return path.read_text(encoding='utf-8')
+    except Exception as exc:  # noqa: BLE001
+        raise SystemExit(f"::error::Failed to read spec '{path}': {exc}")
+
+prompt = os.environ.get('INPUT_PROMPT', '')
+source = 'input' if prompt else ''
+if not prompt:
+    requested = os.environ.get('INPUT_SPEC_PATH', '').strip()
+    candidate = None
+    if requested:
+        p = pathlib.Path(requested)
+        if p.exists():
+            candidate = p
+        else:
+            print(f"::warning::Requested spec_path '{requested}' not found.")
+    globs = []
+    custom_glob = os.environ.get('INPUT_SPECS_GLOB', '').strip()
+    if custom_glob:
+        globs.append(custom_glob)
+    globs.extend(['.agent-os/specs/**/*', '.specify/specs/**/*'])
+    if candidate is None:
+        newest = None
+        newest_mtime = -1.0
+        for pattern in globs:
+            for match in glob.glob(pattern, recursive=True):
+                path = pathlib.Path(match)
+                if not path.is_file():
+                    continue
+                mtime = path.stat().st_mtime
+                if mtime > newest_mtime:
+                    newest_mtime = mtime
+                    newest = path
+        if newest is not None:
+            candidate = newest
+    if candidate is not None:
+        prompt = f"Follow the latest specification at {candidate.as_posix()}\n\n" + read_text(candidate)
+        print(f"::notice::Using spec '{candidate.as_posix()}' for prompt generation.")
+        source = 'spec'
+    else:
+        prompt = "No specification was discovered. Inspect the repository and proceed safely."
+        print('::warning::No specification files found; using fallback guidance prompt.')
+        source = 'fallback'
+
+github_output = pathlib.Path(os.environ['GITHUB_OUTPUT'])
+with github_output.open('a', encoding='utf-8') as handle:
+    handle.write('prompt<<EOF\n')
+    handle.write(prompt)
+    handle.write('\nEOF\n')
+    handle.write(f'prompt-source={source}\n')
+PY
+
+      - name: Run Codegen task
+        id: run_agent
+        env:
+          CODEGEN_ORG_ID: ${{ secrets.CODEGEN_ORG_ID }}
+          CODEGEN_TOKEN: ${{ secrets.CODEGEN_TOKEN }}
+          RESOLVED_REPO_ID: ${{ steps.repo_id.outputs.repo-id }}
+          PROMPT: ${{ steps.prompt.outputs.prompt }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RESOLVED_REPO_ID}" ]; then
+            echo "::error::Resolved repository id is empty."
+            exit 1
+          fi
+          export CODEGEN_REPO_ID="${RESOLVED_REPO_ID}"
+          export REPOSITORY_ID="${RESOLVED_REPO_ID}"
+          python - <<'PY'
+import json
+import os
+
+from codegen import Agent
+
+agent = Agent(org_id=os.environ['CODEGEN_ORG_ID'], token=os.environ['CODEGEN_TOKEN'])
+prompt = os.environ.get('PROMPT', '')
+try:
+    result = agent.run(prompt=prompt)
+except Exception as exc:  # noqa: BLE001
+    message = str(exc)
+    if '401' in message or 'Unauthorized' in message:
+        print('::error::Unauthorized: verify CODEGEN_ORG_ID/CODEGEN_TOKEN secrets and repository permissions.')
+    raise
+
+if isinstance(result, dict):
+    payload = result
+else:
+    payload = getattr(result, '__dict__', {'value': str(result)})
+
+outputs = {}
+for key in ('task_id', 'id', 'status', 'pr_url'):
+    value = payload.get(key)
+    if value:
+        outputs[key] = value
+if 'task_id' not in outputs and 'id' in outputs:
+    outputs['task_id'] = outputs['id']
+
+with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as handle:
+    for key, value in outputs.items():
+        handle.write(f"{key}={value}\n")
+
+print('::notice::Submitted Codegen task.')
+PY
+
+      - name: Wait for task completion
+        id: wait
+        if: ${{ inputs.wait && steps.run_agent.outputs.task_id }}
+        env:
+          CODEGEN_ORG_ID: ${{ secrets.CODEGEN_ORG_ID }}
+          CODEGEN_TOKEN: ${{ secrets.CODEGEN_TOKEN }}
+          RESOLVED_REPO_ID: ${{ steps.repo_id.outputs.repo-id }}
+          TASK_ID: ${{ steps.run_agent.outputs.task_id }}
+        run: |
+          set -euo pipefail
+          export CODEGEN_REPO_ID="${RESOLVED_REPO_ID}"
+          export REPOSITORY_ID="${RESOLVED_REPO_ID}"
+          python - <<'PY'
+import os
+import time
+
+from codegen import Agent
+
+agent = Agent(org_id=os.environ['CODEGEN_ORG_ID'], token=os.environ['CODEGEN_TOKEN'])
+task_id = os.environ['TASK_ID']
+status = None
+pr_url = None
+pending = {'pending', 'queued', 'in_progress', 'running'}
+deadline = time.time() + 1800
+while time.time() < deadline:
+    try:
+        detail = agent.get_task(task_id)  # type: ignore[attr-defined]
+    except AttributeError:
+        print('::warning::Agent.get_task is unavailable; cannot poll task status.')
+        break
+    except Exception as exc:  # noqa: BLE001
+        print(f"::warning::Failed to poll task: {exc}")
+        time.sleep(15)
+        continue
+    if not isinstance(detail, dict):
+        print('::warning::Unexpected task detail payload; stopping poll.')
+        break
+    status = detail.get('status') or status
+    pr_url = detail.get('pr_url') or pr_url
+    if status and status.lower() not in pending:
+        break
+    time.sleep(15)
+else:
+    print('::warning::Polling timed out before task completed.')
+
+with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as handle:
+    if status:
+        handle.write(f"status={status}\n")
+    if pr_url:
+        handle.write(f"pr_url={pr_url}\n")
+PY
+
+      - name: Validate generated pull request
+        env:
+          TARGET_REPO: ${{ steps.preflight.outputs.target-repo }}
+          PR_URL_WAIT: ${{ steps.wait.outputs.pr_url }}
+          PR_URL_INITIAL: ${{ steps.run_agent.outputs.pr_url }}
+        run: |
+          set -euo pipefail
+          pr_url="${PR_URL_WAIT}"
+          if [ -z "${pr_url}" ]; then
+            pr_url="${PR_URL_INITIAL}"
+          fi
+          if [ -z "${pr_url}" ]; then
+            echo "::notice::No pull request URL provided by Codegen."
+            exit 0
+          fi
+          PR_URL="${pr_url}" python - <<'PY'
+    import os
+    import re
+
+    pr_url = os.environ['PR_URL']
+    expected = os.environ['TARGET_REPO']
+    match = re.match(r"https://github\.com/([^/]+/[^/]+)/pull/\d+", pr_url)
+    if not match:
+        raise SystemExit('::error::Invalid pull request URL returned by Codegen.')
+    repo = match.group(1)
+    if repo.lower() != expected.lower():
+        raise SystemExit(f"::error::Codegen created PR for '{repo}', expected '{expected}'.")
+    print(f"::notice::Codegen pull request: {pr_url}")
+    PY
+
+      - name: Summary
+        env:
+          PR_URL_WAIT: ${{ steps.wait.outputs.pr_url }}
+          PR_URL_INITIAL: ${{ steps.run_agent.outputs.pr_url }}
+        run: |
+          set -euo pipefail
+          pr_url="${PR_URL_WAIT}"
+          if [ -z "${pr_url}" ]; then
+            pr_url="${PR_URL_INITIAL}"
+          fi
+          if [ -n "${pr_url}" ]; then
+            echo "::notice::Codegen PR: ${pr_url}"
+          else
+            echo "::notice::Codegen task completed without PR URL."
+          fi
