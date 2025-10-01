@@ -1,4 +1,4 @@
-name: reusable-codegen-agentos
+name: reusable-codegen-agents
 
 on:
   workflow_call:
@@ -26,7 +26,11 @@ on:
       require_agentos:
         type: boolean
         required: false
-        default: true   # set false for "seeding" runs (no .agent-os committed yet)
+        default: true   # set to false for first-time seeding runs
+      target_repo:
+        type: string
+        required: false
+        default: ""     # override; defaults to caller's ${{ github.repository }}
     secrets:
       CODEGEN_ORG_ID:
         required: true
@@ -58,7 +62,8 @@ jobs:
         if: ${{ inputs.require_agentos }}
         run: |
           if [ ! -d .agent-os ]; then
-            echo "::error::Missing .agent-os (commit Agent OS or run seeding job with require_agentos=false)"; exit 1;
+            echo "::error::Missing .agent-os (commit Agent OS or run seeding job with require_agentos=false)";
+            exit 1;
           fi
           ls -R .agent-os | head -100
 
@@ -75,73 +80,105 @@ jobs:
           SPECS_GLOB:     ${{ inputs.specs_glob }}
           REQUIRE_AGENTOS: ${{ inputs.require_agentos }}
           WAIT:           ${{ inputs.wait }}
-          TARGET_REPO:    ${{ github.repository }}
+          TARGET_REPO:    ${{ inputs.target_repo != '' && inputs.target_repo || github.repository }}  # owner/name
         run: |
           python - <<'PY'
-          import os, time
+          import os, re, sys, time
           from pathlib import Path
 
-          # SDK import (works across versions)
+          def newest(glob_pat: str):
+              ps = sorted(Path().glob(glob_pat))
+              return ps[-1] if ps else None
+
+          # Import SDK (support multiple versions)
           try:
               from codegen.agents.agent import Agent
           except Exception:
               from codegen import Agent  # type: ignore
 
-          org_id = os.environ["CODEGEN_ORG_ID"]
-          token  = os.environ["CODEGEN_TOKEN"]
-          repo   = os.environ.get("TARGET_REPO")
+          org_id = (os.environ.get("CODEGEN_ORG_ID") or "").strip()
+          token  = (os.environ.get("CODEGEN_TOKEN")  or "").strip()
+          target_repo = (os.environ.get("TARGET_REPO") or "").strip()
+          if not org_id or not token:
+              print("::error:: Missing CODEGEN_ORG_ID or CODEGEN_TOKEN GitHub secrets."); sys.exit(1)
+          if not target_repo:
+              print("::error:: TARGET_REPO not resolved."); sys.exit(1)
+
           prompt = (os.environ.get("PROMPT_INPUT") or "").strip()
           spec_path  = (os.environ.get("SPEC_PATH") or "").strip()
           specs_glob = (os.environ.get("SPECS_GLOB") or "").strip()
-          require_agentos = (os.environ.get("REQUIRE_AGENTOS","true").lower() in ("1","true","yes","on"))
 
-          def newest(glob_pat: str):
-              paths = sorted(Path().glob(glob_pat))
-              return paths[-1] if paths else None
-
-          # Build a prompt from newest spec if none provided
+          # Build prompt from newest spec if none is provided
           if not prompt:
-              if spec_path:
-                  spec_dir = Path(spec_path)
-              else:
-                  spec_dir = None
-                  if specs_glob:
-                      spec_dir = newest(specs_glob)
-                  if spec_dir is None:
-                      # Auto-detect Agent OS or Spec Kit layouts
-                      spec_dir = newest(".agent-os/specs/*") or newest(".specify/specs/*")
-
+              spec_dir = Path(spec_path) if spec_path else (
+                  newest(specs_glob) if specs_glob else
+                  (newest(".agent-os/specs/*") or newest(".specify/specs/*"))
+              )
               if not spec_dir or not spec_dir.exists():
-                  raise SystemExit("No prompt provided and no spec found (.agent-os/specs or .specify/specs).")
-
-              has_standards = Path(".agent-os/standards").exists()
-              standards_hint = " and our standards in .agent-os/standards" if has_standards else ""
-
+                  print("::error:: No prompt and no spec found (.agent-os/specs or .specify/specs).")
+                  sys.exit(1)
+              standards_hint = " and our standards in .agent-os/standards" if Path(".agent-os/standards").exists() else ""
               prompt = f"""
-              In repo {repo}, implement the tasks in {spec_dir}/tasks.md,
+              [MODE=RUN_SPEC]
+              [REPO:{target_repo}]
+              In repo {target_repo}, implement the tasks in {spec_dir}/tasks.md,
               following the spec in {spec_dir}{standards_hint}.
               Create a feature branch and open a PR with tests passing.
+              ONLY operate on {target_repo}. Do not touch any other repository.
               """
 
-          print("=== Prompt ===\n" + prompt.strip() + "\n==============")
+          print("=== Prompt ==="); print(prompt.strip()); print("==============")
 
+          # Preflight: show org/repo (no secrets printed)
+          print(f"Org: {org_id[:4]}...  Repo: {target_repo}")
+
+          # Create agent and run, forcing repository when SDK supports it
           agent = Agent(org_id=org_id, token=token)
-          task = agent.run(prompt=prompt)
+          task = None
+          for kwargs in (
+              {"repository": target_repo},
+              {"repo": target_repo},
+              {"repositories": [target_repo]},
+              {"repositories": [{"full_name": target_repo}]},
+          ):
+              try:
+                  task = agent.run(prompt=prompt, **kwargs)  # type: ignore[arg-type]
+                  break
+              except TypeError:
+                  continue
+          if task is None:
+              print("::notice:: SDK didn't accept repository kwarg; using prompt-only with REPO directive.")
+              task = agent.run(prompt=prompt)
+
           print(f"Task started -> {task.status}")
 
-          wait_flag = (str(os.environ.get("WAIT","true")).lower() in ("1","true","yes","on"))
-          if wait_flag:
-              for i in range(120):  # ~30 minutes @15s
+          # Poll + validate PR target
+          wait = (os.environ.get("WAIT","true").lower() in ("1","true","yes","on"))
+          pr_url, pr_repo, pr_mismatch = None, None, False
+          if wait:
+              for i in range(120):  # ~30m @15s
                   task.refresh()
                   print(f"[{i+1}] status={task.status}")
+                  try:
+                      res = str(getattr(task, "result", "") or "")
+                      m = re.search(r"https?://github\.com/([^/\s]+)/([^/\s]+)/pull/\d+", res)
+                      if m:
+                          pr_repo = f"{m.group(1)}/{m.group(2)}"
+                          pr_url  = m.group(0)
+                          if pr_repo != target_repo:
+                              pr_mismatch = True
+                              break
+                  except Exception:
+                      pass
                   if task.status in {"completed","failed","canceled"}:
                       break
                   time.sleep(15)
+
               print("Final status:", task.status)
-              try:
-                  print("Result:", task.result)
-              except Exception:
-                  pass
-          else:
-              print("Not waiting for completion.")
+              if pr_url:
+                  print("PR URL:", pr_url)
+
+          if pr_mismatch:
+              print(f"::error:: Codegen opened PR in {pr_repo}, but TARGET_REPO is {target_repo}.")
+              sys.exit(1)
           PY
