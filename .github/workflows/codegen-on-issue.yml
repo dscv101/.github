@@ -18,14 +18,16 @@ jobs:
       spec_path:  ${{ steps.out.outputs.spec_path }}
       should_run: ${{ steps.out.outputs.should_run }}
     steps:
-      - name: Parse issue to prompt/spec
+      - name: Parse issue → prompt/spec
         id: out
+        shell: bash
         run: |
           set -e
           LABELS=$(jq -r '.issue.labels[].name' "$GITHUB_EVENT_PATH" | tr '\n' ' ')
           BODY=$(jq -r '.issue.body // ""' "$GITHUB_EVENT_PATH")
           TITLE=$(jq -r '.issue.title' "$GITHUB_EVENT_PATH")
 
+          # Run only if label 'codegen' OR slash-command present
           if [[ "$LABELS" == *"codegen"* || "$BODY" == *"/run-codegen"* ]]; then
             echo "should_run=true" >> $GITHUB_OUTPUT
           else
@@ -57,16 +59,18 @@ jobs:
   call-reusable:
     if: ${{ needs.parse.outputs.should_run == 'true' || github.event_name == 'workflow_dispatch' }}
     needs: parse
-    uses: dscv101/.github/.github/workflows/codegen-agentos.yml@main
+    uses: dscv101/.github/.github/workflows/codegen-agents.yml@main
     permissions:
       contents: read
     secrets:
-      CODEGEN_ORG_ID: ${{ secrets.CODEGEN_ORG_ID }}
-      CODEGEN_TOKEN:  ${{ secrets.CODEGEN_TOKEN }}
+      CODEGEN_ORG_ID:  ${{ secrets.CODEGEN_ORG_ID }}
+      CODEGEN_TOKEN:   ${{ secrets.CODEGEN_TOKEN }}
+      CODEGEN_REPO_ID: ${{ secrets.CODEGEN_REPO_ID }}
     with:
+      target_repo:    ${{ github.repository }}
+      require_agentos: true
+      python_version: "3.12"
+      wait:           ${{ inputs.wait }}
       prompt:         ${{ needs.parse.outputs.prompt }}
       spec_path:      ${{ needs.parse.outputs.spec_path }}
-      wait:           ${{ inputs.wait }}
-      python_version: "3.12"
-      require_agentos: true
-      # specs_glob: ".agent-os/specs/*"  # optional override
+      # specs_glob: ".agent-os/specs/*"   # optional override

@@ -10,24 +10,40 @@ on:
 
 jobs:
   call-reusable:
-    uses: dscv101/.github/.github/workflows/codegen-agentos.yml@main
+    uses: dscv101/.github/.github/workflows/codegen-agents.yml@main
     permissions:
       contents: read
     secrets:
-      CODEGEN_ORG_ID: ${{ secrets.CODEGEN_ORG_ID }}
-      CODEGEN_TOKEN:  ${{ secrets.CODEGEN_TOKEN }}
+      CODEGEN_ORG_ID:  ${{ secrets.CODEGEN_ORG_ID }}
+      CODEGEN_TOKEN:   ${{ secrets.CODEGEN_TOKEN }}
+      CODEGEN_REPO_ID: ${{ secrets.CODEGEN_REPO_ID }}
     with:
-      require_agentos: false
+      require_agentos: false            # seeding run (no .agent-os committed yet)
+      target_repo: ${{ github.repository }}
+      wait: ${{ inputs.wait }}
       python_version: "3.12"
       prompt: |
-        Goal: Seed Agent OS in this repo from within the Codegen sandbox and open a PR.
+        [MODE=SEED_AGENT_OS]
+        [TARGET_REPO=${{ github.repository }}]
+        [PINNED_AGENT_OS_VERSION=v1.4.1]
 
-        Do:
-        1) If ~/.agent-os exists, use it; else install v1.4.1:
-           curl -sSL https://raw.githubusercontent.com/buildermethods/agent-os/v1.4.1/setup/base.sh | bash -s -- --cursor
-        2) If .agent-os/ does not exist in the repo, run:
-           ~/.agent-os/setup/project.sh --no-base --cursor
-        3) Create branch: chore/agentos-bootstrap
-        4) git add .agent-os && git commit -m "seed Agent OS (sandbox)" || true
-        5) Push and open a PR titled "Seed Agent OS" with a short body describing standards and instructions.
-      wait: ${{ inputs.wait }}
+        Goal
+        Seed Agent OS inside the hosted sandbox and open a PR to TARGET_REPO. Never touch any other repo.
+
+        Hard Guards (run first)
+        - repo_slug="$(git config --get remote.origin.url | sed -E 's#.*github.com[:/](.+?)(\.git)?$#\1#')"
+        - if [ "$repo_slug" != "${{ github.repository }}" ]; then echo "REPO_MISMATCH expected=${{ github.repository }} got=$repo_slug"; exit 1; fi
+        - test -d .git || { echo "NOT_AT_REPO_ROOT"; exit 1; }
+        - if [ -d .agent-os ]; then echo "ALREADY_SEEDED"; exit 0; fi
+
+        Actions
+        1) set -euo pipefail
+        2) curl -fsSL https://raw.githubusercontent.com/buildermethods/agent-os/v1.4.1/setup/base.sh | bash -s -- --cursor
+        3) ~/.agent-os/setup/project.sh --no-base --cursor
+        4) git checkout -B chore/agentos-bootstrap
+        5) git add .agent-os && git diff --cached --quiet || git commit -m "seed Agent OS (sandbox, v1.4.1)"
+        6) if git diff --cached --quiet; then echo "NO_OP"; exit 0; fi
+           # Codegen will push and open the PR
+
+        Outputs
+        - Print REPO_SLUG, PR_URL if opened. Abort on mismatch or failure.
