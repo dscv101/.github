@@ -21,12 +21,15 @@ on:
 jobs:
   call-reusable:
     uses: dscv101/.github/.github/workflows/codegen-agentos.yml@main
+    permissions:
+      contents: read
     secrets:
       CODEGEN_ORG_ID: ${{ secrets.CODEGEN_ORG_ID }}
       CODEGEN_TOKEN:  ${{ secrets.CODEGEN_TOKEN }}
     with:
-      prompt:       ${{ inputs.prompt }}
-      spec_path:    ${{ inputs.spec_path }}
-      wait:         ${{ inputs.wait }}
+      prompt:        ${{ inputs.prompt }}
+      spec_path:     ${{ inputs.spec_path }}
+      wait:          ${{ inputs.wait }}
       python_version: "3.12"
-      # specs_glob: ".agent-os/specs/*"   # customize if you use another path
+      # specs_glob: ".agent-os/specs/*"  # optional override
+      require_agentos: true

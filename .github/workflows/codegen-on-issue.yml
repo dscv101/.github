@@ -6,40 +6,51 @@ on:
   workflow_dispatch:
     inputs:
       wait:
+        description: "Wait for completion?"
         type: boolean
         default: true
 
 jobs:
-  # Optional: parse inputs from the issue
   parse:
     runs-on: ubuntu-latest
     outputs:
-      prompt:    ${{ steps.out.outputs.prompt }}
-      spec_path: ${{ steps.out.outputs.spec_path }}
+      prompt:     ${{ steps.out.outputs.prompt }}
+      spec_path:  ${{ steps.out.outputs.spec_path }}
       should_run: ${{ steps.out.outputs.should_run }}
     steps:
-      - name: Compute prompt/spec_path from issue
+      - name: Parse issue to prompt/spec
         id: out
-        env:
-          TITLE: ${{ github.event.issue.title }}
-          BODY:  ${{ github.event.issue.body }}
-          LABELS_CSV: ${{ join(github.event.issue.labels.*.name, ',') }}
         run: |
           set -e
-          # Should run? label=codegen OR body contains /run-codegen
-          if [[ "$LABELS_CSV" == *"codegen"* || "$BODY" == *"/run-codegen"* ]]; then
+          LABELS=$(jq -r '.issue.labels[].name' "$GITHUB_EVENT_PATH" | tr '\n' ' ')
+          BODY=$(jq -r '.issue.body // ""' "$GITHUB_EVENT_PATH")
+          TITLE=$(jq -r '.issue.title' "$GITHUB_EVENT_PATH")
+
+          if [[ "$LABELS" == *"codegen"* || "$BODY" == *"/run-codegen"* ]]; then
             echo "should_run=true" >> $GITHUB_OUTPUT
           else
             echo "should_run=false" >> $GITHUB_OUTPUT
           fi
-          # Prompt: prefer fenced ```prompt blocks; else title + body
+
+          # Prefer fenced ```prompt blocks; else title+body
           PROMPT_BLOCK=$(awk '/^```prompt/{flag=1;next}/^```/{flag=0}flag' <<< "$BODY" || true)
           if [ -z "$PROMPT_BLOCK" ]; then
-            printf "prompt<<'EOF'\n%s\n\n%s\nEOF\n" "$TITLE" "$BODY" >> $GITHUB_OUTPUT
+            {
+              echo "prompt<<'EOF'"
+              echo "$TITLE"
+              echo
+              echo "$BODY"
+              echo "EOF"
+            } >> $GITHUB_OUTPUT
           else
-            printf "prompt<<'EOF'\n%s\nEOF\n" "$PROMPT_BLOCK" >> $GITHUB_OUTPUT
+            {
+              echo "prompt<<'EOF'"
+              echo "$PROMPT_BLOCK"
+              echo "EOF"
+            } >> $GITHUB_OUTPUT
           fi
-          # spec_path: from a line like 'spec_path: PATH' or 'Spec: PATH'
+
+          # spec_path from 'spec_path: ...' or 'Spec: ...'
           SPEC_PATH=$(printf "%s\n" "$BODY" | awk -F': ' '/^spec_path:|^Spec:/{print $2; exit}' || true)
           echo "spec_path=${SPEC_PATH}" >> $GITHUB_OUTPUT
 
@@ -47,11 +58,15 @@ jobs:
     if: ${{ needs.parse.outputs.should_run == 'true' || github.event_name == 'workflow_dispatch' }}
     needs: parse
     uses: dscv101/.github/.github/workflows/codegen-agentos.yml@main
+    permissions:
+      contents: read
     secrets:
       CODEGEN_ORG_ID: ${{ secrets.CODEGEN_ORG_ID }}
       CODEGEN_TOKEN:  ${{ secrets.CODEGEN_TOKEN }}
     with:
-      prompt:       ${{ needs.parse.outputs.prompt }}
-      spec_path:    ${{ needs.parse.outputs.spec_path }}
-      wait:         ${{ inputs.wait || true }}
+      prompt:         ${{ needs.parse.outputs.prompt }}
+      spec_path:      ${{ needs.parse.outputs.spec_path }}
+      wait:           ${{ inputs.wait }}
       python_version: "3.12"
+      require_agentos: true
+      # specs_glob: ".agent-os/specs/*"  # optional override

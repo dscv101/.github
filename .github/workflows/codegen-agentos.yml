@@ -22,7 +22,11 @@ on:
       specs_glob:
         type: string
         required: false
-        default: ".agent-os/specs/*"
+        default: ""     # if empty, auto-detect (.agent-os/specs or .specify/specs)
+      require_agentos:
+        type: boolean
+        required: false
+        default: true   # set false for "seeding" runs (no .agent-os committed yet)
     secrets:
       CODEGEN_ORG_ID:
         required: true
@@ -32,17 +36,18 @@ on:
 jobs:
   run-codegen:
     runs-on: ubuntu-latest
-    # unique per repo+ref to avoid overlapping runs
     concurrency:
       group: codegen-${{ github.repository }}-${{ github.ref }}
       cancel-in-progress: false
     permissions:
-      contents: read    # Codegen's GitHub App handles PRs
+      contents: read
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ inputs.python_version }}
 
@@ -50,44 +55,71 @@ jobs:
         run: pip install --upgrade codegen
 
       - name: Verify Agent OS presence
+        if: ${{ inputs.require_agentos }}
         run: |
-          test -d .agent-os || { echo "::error::Missing .agent-os (commit Agent OS to repo)"; exit 1; }
+          if [ ! -d .agent-os ]; then
+            echo "::error::Missing .agent-os (commit Agent OS or run seeding job with require_agentos=false)"; exit 1;
+          fi
           ls -R .agent-os | head -100
+
+      - name: Proceeding without .agent-os (seeding expected)
+        if: ${{ !inputs.require_agentos }}
+        run: echo "::notice::.agent-os not found, but require_agentos=false; continuing (sandbox will seed)."
 
       - name: Trigger Codegen (spec- or prompt-driven)
         env:
           CODEGEN_ORG_ID: ${{ secrets.CODEGEN_ORG_ID }}
-          CODEGEN_TOKEN: ${{ secrets.CODEGEN_TOKEN }}
-          PROMPT_INPUT:  ${{ inputs.prompt }}
-          SPEC_PATH:     ${{ inputs.spec_path }}
-          SPECS_GLOB:    ${{ inputs.specs_glob }}
-          WAIT:          ${{ inputs.wait }}
-          TARGET_REPO:   ${{ github.repository }}
+          CODEGEN_TOKEN:  ${{ secrets.CODEGEN_TOKEN }}
+          PROMPT_INPUT:   ${{ inputs.prompt }}
+          SPEC_PATH:      ${{ inputs.spec_path }}
+          SPECS_GLOB:     ${{ inputs.specs_glob }}
+          REQUIRE_AGENTOS: ${{ inputs.require_agentos }}
+          WAIT:           ${{ inputs.wait }}
+          TARGET_REPO:    ${{ github.repository }}
         run: |
           python - <<'PY'
           import os, time
           from pathlib import Path
 
+          # SDK import (works across versions)
           try:
               from codegen.agents.agent import Agent
           except Exception:
-              from codegen import Agent
+              from codegen import Agent  # type: ignore
 
           org_id = os.environ["CODEGEN_ORG_ID"]
           token  = os.environ["CODEGEN_TOKEN"]
           repo   = os.environ.get("TARGET_REPO")
           prompt = (os.environ.get("PROMPT_INPUT") or "").strip()
-          spec_path = (os.environ.get("SPEC_PATH") or "").strip()
-          specs_glob = os.environ.get("SPECS_GLOB") or ".agent-os/specs/*"
+          spec_path  = (os.environ.get("SPEC_PATH") or "").strip()
+          specs_glob = (os.environ.get("SPECS_GLOB") or "").strip()
+          require_agentos = (os.environ.get("REQUIRE_AGENTOS","true").lower() in ("1","true","yes","on"))
 
-          # Build a prompt from the newest spec if none is provided
+          def newest(glob_pat: str):
+              paths = sorted(Path().glob(glob_pat))
+              return paths[-1] if paths else None
+
+          # Build a prompt from newest spec if none provided
           if not prompt:
-              spec_dir = Path(spec_path) if spec_path else (sorted(Path().glob(specs_glob)) or [None])[-1]
-              if spec_dir is None or not spec_dir.exists():
-                  raise SystemExit("No prompt provided and no spec found. Provide inputs.prompt or inputs.spec_path.")
+              if spec_path:
+                  spec_dir = Path(spec_path)
+              else:
+                  spec_dir = None
+                  if specs_glob:
+                      spec_dir = newest(specs_glob)
+                  if spec_dir is None:
+                      # Auto-detect Agent OS or Spec Kit layouts
+                      spec_dir = newest(".agent-os/specs/*") or newest(".specify/specs/*")
+
+              if not spec_dir or not spec_dir.exists():
+                  raise SystemExit("No prompt provided and no spec found (.agent-os/specs or .specify/specs).")
+
+              has_standards = Path(".agent-os/standards").exists()
+              standards_hint = " and our standards in .agent-os/standards" if has_standards else ""
+
               prompt = f"""
               In repo {repo}, implement the tasks in {spec_dir}/tasks.md,
-              following the spec in {spec_dir} and our standards in .agent-os/standards.
+              following the spec in {spec_dir}{standards_hint}.
               Create a feature branch and open a PR with tests passing.
               """
 
@@ -97,8 +129,8 @@ jobs:
           task = agent.run(prompt=prompt)
           print(f"Task started -> {task.status}")
 
-          wait = str(os.environ.get("WAIT", "true")).lower() in ("1","true","yes","on")
-          if wait:
+          wait_flag = (str(os.environ.get("WAIT","true")).lower() in ("1","true","yes","on"))
+          if wait_flag:
               for i in range(120):  # ~30 minutes @15s
                   task.refresh()
                   print(f"[{i+1}] status={task.status}")

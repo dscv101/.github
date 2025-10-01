@@ -1,18 +1,27 @@
-# .github/workflows/seed-agentos.yml
 name: Seed Agent OS (via Codegen)
+
 on:
   workflow_dispatch:
     inputs:
-      wait: { type: boolean, default: true }
+      wait:
+        description: "Wait for Codegen to finish?"
+        type: boolean
+        default: true
+
 jobs:
   call-reusable:
     uses: dscv101/.github/.github/workflows/codegen-agentos.yml@main
+    permissions:
+      contents: read
     secrets:
       CODEGEN_ORG_ID: ${{ secrets.CODEGEN_ORG_ID }}
       CODEGEN_TOKEN:  ${{ secrets.CODEGEN_TOKEN }}
     with:
+      require_agentos: false
+      python_version: "3.12"
       prompt: |
-        Goal: Seed Agent OS in this repo from within the sandbox and open a PR.
+        Goal: Seed Agent OS in this repo from within the Codegen sandbox and open a PR.
+
         Do:
         1) If ~/.agent-os exists, use it; else install v1.4.1:
            curl -sSL https://raw.githubusercontent.com/buildermethods/agent-os/v1.4.1/setup/base.sh | bash -s -- --cursor
@@ -20,6 +29,5 @@ jobs:
            ~/.agent-os/setup/project.sh --no-base --cursor
         3) Create branch: chore/agentos-bootstrap
         4) git add .agent-os && git commit -m "seed Agent OS (sandbox)" || true
-        5) Push and open a PR titled "Seed Agent OS".
+        5) Push and open a PR titled "Seed Agent OS" with a short body describing standards and instructions.
       wait: ${{ inputs.wait }}
-      python_version: "3.12"
