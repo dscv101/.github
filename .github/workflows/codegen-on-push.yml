@@ -20,7 +20,7 @@ on:
 
 jobs:
   call-reusable:
-    uses: dscv101/.github/.github/workflows/codegen-agents.yml@main
+    uses: dscv101/.github/.github/workflows/codegen-agentos.yml@main
     permissions:
       contents: read
     secrets:
