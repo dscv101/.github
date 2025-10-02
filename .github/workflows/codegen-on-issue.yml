@@ -95,7 +95,6 @@ PY
     if: ${{ needs.parse.outputs.should-run == 'true' }}
     uses: ./.github/workflows/codegen-agents.yml
     with:
-      require_agentos: true
       prompt: ${{ needs.parse.outputs.prompt }}
       spec_path: ${{ needs.parse.outputs['spec-path'] }}
       wait: ${{ needs.parse.outputs.wait == 'true' }}

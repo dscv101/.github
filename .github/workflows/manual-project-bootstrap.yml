@@ -1,0 +1,130 @@
+name: Manual Project Bootstrap
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_title:
+        description: "Title for the GitHub Project V2 board"
+        required: true
+      project_description:
+        description: "Optional short description"
+        required: false
+        default: ""
+      hierarchy_json:
+        description: "JSON payload describing milestones, epics, and tasks"
+        required: true
+        default: |
+          {
+            "milestones": [
+              {
+                "title": "MVP Release",
+                "description": "Baseline milestone created via automation.",
+                "due_on": "2024-12-31",
+                "epics": [
+                  {
+                    "title": "Initial Epic",
+                    "body": "High-level objectives for the epic.",
+                    "tasks": [
+                      {"title": "Discovery", "body": "Document current state and gaps."},
+                      {"title": "Implementation", "body": "Deliver core functionality."}
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+
+permissions:
+  contents: read
+  issues: write
+  projects: write
+
+jobs:
+  prepare:
+    name: Compose Codegen prompt
+    runs-on: ubuntu-latest
+    outputs:
+      prompt: ${{ steps.compose.outputs.prompt }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Compose automation prompt
+        id: compose
+        env:
+          PROJECT_TITLE: ${{ inputs.project_title }}
+          PROJECT_DESCRIPTION: ${{ inputs.project_description }}
+          HIERARCHY_JSON: ${{ inputs.hierarchy_json }}
+        run: |
+          python - <<'PY'
+import json
+import os
+import shlex
+import textwrap
+
+project_title = os.environ.get("PROJECT_TITLE", "").strip()
+project_description = os.environ.get("PROJECT_DESCRIPTION", "").strip()
+hierarchy_raw = os.environ.get("HIERARCHY_JSON", "").strip()
+
+if not hierarchy_raw:
+    raise SystemExit("hierarchy_json input must not be empty.")
+
+try:
+    hierarchy_data = json.loads(hierarchy_raw)
+except json.JSONDecodeError as exc:  # noqa: PERF203 - clarity over micro-optimisation
+    raise SystemExit(f"Invalid hierarchy_json payload: {exc}") from exc
+
+hierarchy_pretty = json.dumps(hierarchy_data, indent=2)
+project_title_arg = shlex.quote(project_title)
+project_description_arg = shlex.quote(project_description)
+
+prompt = textwrap.dedent(
+    f"""
+    You are operating within the repository workspace to run the manual-project-bootstrap automation. Follow these steps exactly:
+
+    1. Persist the hierarchy specification:
+    ```bash
+    cat <<'JSON' > hierarchy.json
+    {hierarchy_pretty}
+    JSON
+    ```
+
+    2. Run the bootstrap helper script (ensure the GITHUB_TOKEN environment variable remains available so the script can call the GitHub APIs):
+    ```bash
+    python scripts/create_project_structure.py \
+      --project-title {project_title_arg} \
+      --project-description {project_description_arg} \
+      --hierarchy-file hierarchy.json
+    ```
+
+    3. Capture the script output and surface the created project URL, milestone numbers, and issue links in your final response.
+
+    Do not modify repository files outside of generating the hierarchy.json scratch file needed for this execution.
+    """
+).strip()
+
+output_path = os.environ.get("GITHUB_OUTPUT")
+if not output_path:
+    raise SystemExit("GITHUB_OUTPUT environment variable is missing.")
+
+with open(output_path, "a", encoding="utf-8") as handle:
+    handle.write("prompt<<'PROMPT'\n")
+    handle.write(prompt)
+    handle.write("\nPROMPT\n")
+    handle.write("prompt-source=manual-project-bootstrap\n")
+PY
+
+  run:
+    name: Execute via Codegen
+    needs: prepare
+    uses: ./.github/workflows/codegen-agents.yml
+    with:
+      prompt: ${{ needs.prepare.outputs.prompt }}
+      wait: true
+      target_repo: ${{ github.repository }}
+    secrets:
+      CODEGEN_ORG_ID: ${{ secrets.CODEGEN_ORG_ID }}
+      CODEGEN_TOKEN: ${{ secrets.CODEGEN_TOKEN }}
+      CODEGEN_REPO_ID: ${{ secrets.CODEGEN_REPO_ID }}
+    env:
+      GITHUB_TOKEN: ${{ secrets.MANUAL_PROJECT_TOKEN != '' && secrets.MANUAL_PROJECT_TOKEN || github.token }}

@@ -1,0 +1,4249 @@
+<repomix><file_summary>This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+The content has been processed where content has been formatted for parsing in xml style, security check has been disabled.<purpose>This file contains a packed representation of the entire repository&apos;s contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.</purpose><file_format>The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Repository files, each consisting of:
+  - File path as an attribute
+  - Full contents of the file</file_format><usage_guidelines>- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.</usage_guidelines><notes>- Some files may have been excluded based on .gitignore rules and Repomix&apos;s configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Content has been formatted for parsing in xml style
+- Security check has been disabled - content may contain sensitive information
+- Files are sorted by Git change count (files with more changes are at the bottom)</notes></file_summary><directory_structure>.github/
+  ISSUE_TEMPLATE/
+    config.yml
+  workflows/
+    pr-decline.yml
+    stale.yml
+  CODE_OF_CONDUCT.md
+  CONTRIBUTING.md
+  PULL_REQUEST_TEMPLATE.md
+  SECURITY.yml
+  SUPPORT.md
+claude-code/
+  agents/
+    context-fetcher.md
+    date-checker.md
+    file-creator.md
+    git-workflow.md
+    project-manager.md
+    test-runner.md
+commands/
+  analyze-product.md
+  create-spec.md
+  create-tasks.md
+  execute-tasks.md
+  plan-product.md
+instructions/
+  core/
+    analyze-product.md
+    create-spec.md
+    create-tasks.md
+    execute-task.md
+    execute-tasks.md
+    plan-product.md
+    post-execution-tasks.md
+  meta/
+    post-flight.md
+    pre-flight.md
+setup/
+  base.sh
+  functions.sh
+  project.sh
+standards/
+  code-style/
+    css-style.md
+    html-style.md
+    javascript-style.md
+  best-practices.md
+  code-style.md
+  tech-stack.md
+.gitignore
+CHANGELOG.md
+config.yml
+LICENSE
+README.md</directory_structure><files>This section contains the contents of the repository&apos;s files.<file path=".github/ISSUE_TEMPLATE/config.yml">blank_issues_enabled: false
+
+contact_links:
+  - name: 🐛 Report a bug or propose a fix
+    url: https://github.com/buildermethods/agent-os/discussions/categories/bugs
+    about: Already checked the docs and found a reproducible bug? Please report it in the &apos;Bugs&apos; discussion area.
+
+  - name: 💡 Feature request or idea
+    url: https://github.com/buildermethods/agent-os/discussions/categories/ideas
+    about: Request new features, integrations, or other improvements in the &apos;Ideas&apos; discussion area.
+
+  - name: ❓ Ask a question
+    url: https://github.com/buildermethods/agent-os/discussions/categories/q-a
+    about: For community support and general questions, use the &apos;Q&amp;A&apos; discussion area.
+
+  - name: 🎯 Member support request
+    url: https://buildermethods.com/pro
+    about: Join Builder Methods Pro for official Agent OS support with guaranteed responses from Brian &amp; team, plus access to community chat, workshops, courses and more.
+
+  - name: 📗 Check the official docs
+    url: https://buildermethods.com/agent-os
+    about: Please review the docs before posting a bug, question, or idea.</file><file path=".github/workflows/pr-decline.yml">name: PR manual decline (label or button)
+
+on:
+  pull_request_target:
+    types: [labeled]
+
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: &quot;PR number to act on&quot;
+        required: true
+      reason:
+        description: &quot;Reason to use&quot;
+        required: true
+        type: choice
+        options: [Out of scope, Low info, Duplicate, Spam]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+env:
+  REPO: ${{ github.repository }}
+  IDEAS_URL: https://github.com/buildermethods/agent-os/discussions/categories/ideas
+  CONTRIBUTING_URL: https://github.com/buildermethods/agent-os/blob/main/.github/CONTRIBUTING.md
+
+jobs:
+  decline:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Determine PR number and reason (from label or dispatch)
+        id: vars
+        uses: actions/github-script@v7
+        with:
+          script: |
+            let prNumber = &quot;&quot;;
+            let reason = &quot;&quot;;
+            let skip = false;
+
+            if (context.eventName === &quot;pull_request_target&quot; &amp;&amp; context.payload.action === &quot;labeled&quot;) {
+              prNumber = String(context.payload.pull_request.number);
+              const label = (context.payload.label?.name || &quot;&quot;).trim();
+
+              const map = {
+                &quot;Close PR: Out of scope&quot;: &quot;Out of scope&quot;,
+                &quot;Close PR: Low info&quot;: &quot;Low info&quot;,
+                &quot;Close PR: Duplicate&quot;: &quot;Duplicate&quot;,
+                &quot;Close PR: Spam&quot;: &quot;Spam&quot;,
+              };
+
+              if (map[label]) {
+                reason = map[label];
+              } else {
+                skip = true; // not one of your decline labels
+              }
+            }
+
+            if (context.eventName === &quot;workflow_dispatch&quot;) {
+              prNumber = (core.getInput(&quot;pr_number&quot;) || &quot;&quot;).trim();
+              reason   = (core.getInput(&quot;reason&quot;) || &quot;&quot;).trim();
+            }
+
+            core.setOutput(&quot;skip&quot;, skip ? &quot;true&quot; : &quot;false&quot;);
+            core.setOutput(&quot;pr&quot;, prNumber);
+            core.setOutput(&quot;reason&quot;, reason);
+
+      - name: Stop if not a decline event
+        if: steps.vars.outputs.skip == &apos;true&apos; || steps.vars.outputs.pr == &apos;&apos; || steps.vars.outputs.reason == &apos;&apos;
+        run: echo &quot;No decline action to run.&quot;
+
+      - name: Build canned message
+        if: steps.vars.outputs.skip != &apos;true&apos; &amp;&amp; steps.vars.outputs.pr != &apos;&apos; &amp;&amp; steps.vars.outputs.reason != &apos;&apos;
+        id: msg
+        uses: actions/github-script@v7
+        env:
+          REASON: ${{ steps.vars.outputs.reason }}          # &lt;-- pass raw string
+          IDEAS_URL: ${{ env.IDEAS_URL }}
+          CONTRIBUTING_URL: ${{ env.CONTRIBUTING_URL }}
+        with:
+          script: |
+            const reason = process.env.REASON;              // &lt;-- read raw string
+            const IDEAS = process.env.IDEAS_URL;
+            const CONTRIB = process.env.CONTRIBUTING_URL;
+
+            let body = &quot;&quot;;
+            switch (reason) {
+              case &quot;Out of scope&quot;:
+                body =
+                  &quot;Thanks for the PR! After review, this change isn’t on the current roadmap for Agent OS. &quot; +
+                  &quot;We keep core focused to manage long-term maintenance and compatibility.\n\n&quot; +
+                  `If you&apos;d like to continue the conversation, please start a proposal in **Ideas**: ${IDEAS}\n` +
+                  &quot;If you publish a fork/plugin/example, feel free to share it in **Show &amp; Tell** so others can try it.\n\n&quot; +
+                  &quot;_Closing to keep the backlog focused._&quot;;
+                break;
+
+              case &quot;Low info&quot;:
+                body =
+                  &quot;Thanks for the PR! We’re missing required details for review.\n\n&quot; +
+                  &quot;Please update the PR with:\n&quot; +
+                  &quot;• **Summary**\n&quot; +
+                  &quot;• **Checklist**\n&quot; +
+                  &quot;• **Documented steps to test**\n\n&quot; +
+                  `Guidelines: ${CONTRIB}\n\n` +
+                  &quot;Once updated, you can open a new PR or ask a maintainer to reopen.&quot;;
+                break;
+
+              case &quot;Duplicate&quot;:
+                body =
+                  &quot;Thanks for the PR! This appears to duplicate existing work or discussion. &quot; +
+                  &quot;We’ll consolidate on the canonical thread/PR to reduce churn.\n\n&quot; +
+                  &quot;_Closing this one to keep things tidy._&quot;;
+                break;
+
+              case &quot;Spam&quot;:
+                body = &quot;Closing this PR. It doesn’t meet our contribution policy.&quot;;
+                break;
+
+              default:
+                body = &quot;Thanks for the PR! Closing per maintainer review.&quot;;
+            }
+
+            core.setOutput(&quot;body&quot;, body);
+
+      - name: Comment and close PR
+        if: steps.vars.outputs.skip != &apos;true&apos; &amp;&amp; steps.vars.outputs.pr != &apos;&apos; &amp;&amp; steps.msg.outputs.body != &apos;&apos;
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ env.REPO }}
+        run: |
+          PR=&quot;${{ steps.vars.outputs.pr }}&quot;
+          BODY=&quot;${{ steps.msg.outputs.body }}&quot;
+
+          gh pr comment &quot;$PR&quot; --repo &quot;$REPO&quot; --body &quot;$BODY&quot;
+          gh pr close   &quot;$PR&quot; --repo &quot;$REPO&quot;</file><file path=".github/workflows/stale.yml">name: Close stale threads
+
+on:
+  schedule:
+    - cron: &quot;0 9 * * *&quot; # daily at 09:00 UTC
+
+permissions:
+  issues: write
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v9
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          days-before-stale: 30
+          days-before-close: 7
+          stale-issue-message: &gt;
+            This issue has been marked stale due to inactivity. If this is still a problem,
+            please add new details (logs, steps to reproduce) and we’ll revisit.
+          close-issue-message: &gt;
+            Closing due to inactivity. If you can provide a fresh, reproducible case on the latest version,
+            please open a new bug report with full details. Thanks!
+          exempt-issue-labels: bug</file><file path=".github/CODE_OF_CONDUCT.md"># Code of Conduct
+
+Be respectful, assume good intent, and keep discussion constructive and on-topic. Harassment or discrimination is not tolerated.
+
+Contact: buildermethods.com/contact</file><file path=".github/CONTRIBUTING.md"># Contributing to Agent OS
+
+Thanks for considering a contribution! Agent OS is free and open source, but to keep things manageable we follow a **Discussions-first workflow**.
+
+---
+
+## Where things go
+
+- **Discussions (Bugs):** Report suspected bugs. Maintainers may promote confirmed bugs into Issues.
+  👉 **Check the docs before posting:** [buildermethods.com/agent-os](https://buildermethods.com/agent-os)
+
+- **Discussions (Ideas):** Share feature ideas and proposals.
+  👉 **Check the docs first** to ensure it’s not already supported.
+
+- **Discussions (Q&amp;A):** Ask &amp; answer community questions.
+
+- **Builder Methods Pro:** Paid membership with guaranteed support responses → https://buildermethods.com/pro
+
+---
+
+## Pull Requests (read first!)
+
+To avoid wasted effort and to protect maintainer time:
+
+- **Bug-fix PRs:**
+  Please include `[bug fix]` in your PR title and clearly describe the steps to reproduce and test the fix.
+
+- **Feature PRs:**
+  &gt; 💡 **Ideas welcome!** We strongly recommend starting with a Discussion in our **Ideas** section to gather feedback and community support before submitting a PR. This helps us understand your use case and explore the best approach together.
+  &gt; Please note: New features are rarely accepted into core as we must consider long-term roadmap, maintainability, and support implications. A declined PR doesn&apos;t mean &quot;never&quot;—it means &quot;not now.&quot; Starting with a Discussion gives your idea the best chance of success.
+
+- **Docs-only PRs:**
+  Typos, clarifications, and doc improvements are always welcomed.
+
+---
+
+## How to propose a new feature or integration
+
+Open a Discussion in **Ideas** with:
+- Problem &amp; motivation
+- Proposed change &amp; alternatives
+- User experience impact
+- Updating &amp; compatibility considerations
+
+If a maintainer labels it **`approved`**, then a PR may be opened.
+
+---
+
+## Code of Conduct
+
+By participating, you agree to our [Code of Conduct](./CODE_OF_CONDUCT.md). Be respectful and constructive.</file><file path=".github/PULL_REQUEST_TEMPLATE.md">## Summary
+&lt;!-- What does this change do and why? Keep it tight. --&gt;
+
+## Linked item
+- Closes: #&lt;number&gt; (must be an open Issue) **OR**
+- Implements: #&lt;number&gt; (must be a Discussion)
+
+## Checklist
+- [ ] Linked to related Issue/Discussion
+- [ ] Documented steps to test (below)
+- [ ] Drafted “how to use” docs (if this adds new behavior)
+- [ ] Backwards compatibility considered (notes if applicable)
+
+## Documented steps to test
+1.
+2.
+3.
+
+## Notes for reviewers
+&lt;!-- Anything to call out, screenshots, logs, perf notes, etc. --&gt;</file><file path=".github/SECURITY.yml"># Security Policy
+
+Please do not open public issues for potential security problems.
+
+Send potential security problems to brian@buildermethods.com and they will be addressed promptly.</file><file path=".github/SUPPORT.md"># Support policy
+
+Agent OS is free and open source. To keep it sustainable, you can seek support in any of these ways:
+
+- **[Documentation](https://buildermethods.com/agent-os):** Complete and up-to-date guides for installation, updating, and usage of Agent OS.
+
+- **[Community Support (Free)](https://github.com/buildermethods/agent-os/discussions):** Ask &amp; answer questions with other users in the **Q&amp;A** category of GitHub Discussions.
+
+- **[Official Support (Paid)](https://buildermethods.com/pro):** For guaranteed responses from Brian &amp; team, join **Builder Methods Pro**.
+
+---
+
+## Bugs
+- Post suspected bugs in the **Bugs category** of Discussions.  Maintainers may promote confirmed bugs to Issues for tracking and fixes.
+
+---
+
+## Feature ideas
+Use the **Ideas category** of Discussions to propose and upvote new features and integration requests.</file><file path="claude-code/agents/context-fetcher.md">---
+name: context-fetcher
+description: Use proactively to retrieve and extract relevant information from Agent OS documentation files. Checks if content is already in context before returning.
+tools: Read, Grep, Glob
+color: blue
+---
+
+You are a specialized information retrieval agent for Agent OS workflows. Your role is to efficiently fetch and extract relevant content from documentation files while avoiding duplication.
+
+## Core Responsibilities
+
+1. **Context Check First**: Determine if requested information is already in the main agent&apos;s context
+2. **Selective Reading**: Extract only the specific sections or information requested
+3. **Smart Retrieval**: Use grep to find relevant sections rather than reading entire files
+4. **Return Efficiently**: Provide only new information not already in context
+
+## Supported File Types
+
+- Specs: spec.md, spec-lite.md, technical-spec.md, sub-specs/*
+- Product docs: mission.md, mission-lite.md, roadmap.md, tech-stack.md, decisions.md
+- Standards: code-style.md, best-practices.md, language-specific styles
+- Tasks: tasks.md (specific task details)
+
+## Workflow
+
+1. Check if the requested information appears to be in context already
+2. If not in context, locate the requested file(s)
+3. Extract only the relevant sections
+4. Return the specific information needed
+
+## Output Format
+
+For new information:
+```
+📄 Retrieved from [file-path]
+
+[Extracted content]
+```
+
+For already-in-context information:
+```
+✓ Already in context: [brief description of what was requested]
+```
+
+## Smart Extraction Examples
+
+Request: &quot;Get the pitch from mission-lite.md&quot;
+→ Extract only the pitch section, not the entire file
+
+Request: &quot;Find CSS styling rules from code-style.md&quot;
+→ Use grep to find CSS-related sections only
+
+Request: &quot;Get Task 2.1 details from tasks.md&quot;
+→ Extract only that specific task and its subtasks
+
+## Important Constraints
+
+- Never return information already visible in current context
+- Extract minimal necessary content
+- Use grep for targeted searches
+- Never modify any files
+- Keep responses concise
+
+Example usage:
+- &quot;Get the product pitch from mission-lite.md&quot;
+- &quot;Find Ruby style rules from code-style.md&quot;
+- &quot;Extract Task 3 requirements from the password-reset spec&quot;</file><file path="claude-code/agents/date-checker.md">---
+name: date-checker
+description: Use proactively to determine and output today&apos;s date including the current year, month and day. Checks if content is already in context before returning.
+tools: Read, Grep, Glob
+color: pink
+---
+
+You are a specialized date determination agent for Agent OS workflows. Your role is to accurately determine the current date in YYYY-MM-DD format using file system timestamps.
+
+## Core Responsibilities
+
+1. **Context Check First**: Determine if the current date is already visible in the main agent&apos;s context
+2. **File System Method**: Use temporary file creation to extract accurate timestamps
+3. **Format Validation**: Ensure date is in YYYY-MM-DD format
+4. **Output Clearly**: Always output the determined date at the end of your response
+
+## Workflow
+
+1. Check if today&apos;s date (in YYYY-MM-DD format) is already visible in context
+2. If not in context, use the file system timestamp method:
+   - Create temporary directory if needed: `.agent-os/specs/`
+   - Create temporary file: `.agent-os/specs/.date-check`
+   - Read file to extract creation timestamp
+   - Parse timestamp to extract date in YYYY-MM-DD format
+   - Clean up temporary file
+3. Validate the date format and reasonableness
+4. Output the date clearly at the end of response
+
+## Date Determination Process
+
+### Primary Method: File System Timestamp
+```bash
+# Create directory if not exists
+mkdir -p .agent-os/specs/
+
+# Create temporary file
+touch .agent-os/specs/.date-check
+
+# Read file with ls -la to see timestamp
+ls -la .agent-os/specs/.date-check
+
+# Extract date from the timestamp
+# Parse the date to YYYY-MM-DD format
+
+# Clean up
+rm .agent-os/specs/.date-check
+```
+
+### Validation Rules
+- Format must match: `^\d{4}-\d{2}-\d{2}$`
+- Year range: 2024-2030
+- Month range: 01-12
+- Day range: 01-31
+
+## Output Format
+
+### When date is already in context:
+```
+✓ Date already in context: YYYY-MM-DD
+
+Today&apos;s date: YYYY-MM-DD
+```
+
+### When determining from file system:
+```
+📅 Determining current date from file system...
+✓ Date extracted: YYYY-MM-DD
+
+Today&apos;s date: YYYY-MM-DD
+```
+
+### Error handling:
+```
+⚠️ Unable to determine date from file system
+Please provide today&apos;s date in YYYY-MM-DD format
+```
+
+## Important Behaviors
+
+- Always output the date in the final line as: `Today&apos;s date: YYYY-MM-DD`
+- Never ask the user for the date unless file system method fails
+- Always clean up temporary files after use
+- Keep responses concise and focused on date determination
+
+## Example Output
+
+```
+📅 Determining current date from file system...
+✓ Created temporary file and extracted timestamp
+✓ Date validated: 2025-08-02
+
+Today&apos;s date: 2025-08-02
+```
+
+Remember: Your primary goal is to output today&apos;s date in YYYY-MM-DD format so it becomes available in the main agent&apos;s context window.</file><file path="claude-code/agents/file-creator.md">---
+name: file-creator
+description: Use proactively to create files, directories, and apply templates for Agent OS workflows. Handles batch file creation with proper structure and boilerplate.
+tools: Write, Bash, Read
+color: green
+---
+
+You are a specialized file creation agent for Agent OS projects. Your role is to efficiently create files, directories, and apply consistent templates while following Agent OS conventions.
+
+## Core Responsibilities
+
+1. **Directory Creation**: Create proper directory structures
+2. **File Generation**: Create files with appropriate headers and metadata
+3. **Template Application**: Apply standard templates based on file type
+4. **Batch Operations**: Create multiple files from specifications
+5. **Naming Conventions**: Ensure proper file and folder naming
+
+## Agent OS File Templates
+
+### Spec Files
+
+#### spec.md Template
+```markdown
+# Spec Requirements Document
+
+&gt; Spec: [SPEC_NAME]
+&gt; Created: [CURRENT_DATE]
+&gt; Status: Planning
+
+## Overview
+
+[OVERVIEW_CONTENT]
+
+## User Stories
+
+[USER_STORIES_CONTENT]
+
+## Spec Scope
+
+[SCOPE_CONTENT]
+
+## Out of Scope
+
+[OUT_OF_SCOPE_CONTENT]
+
+## Expected Deliverable
+
+[DELIVERABLE_CONTENT]
+
+## Spec Documentation
+
+- Tasks: @.agent-os/specs/[FOLDER]/tasks.md
+- Technical Specification: @.agent-os/specs/[FOLDER]/sub-specs/technical-spec.md
+[ADDITIONAL_DOCS]
+```
+
+#### spec-lite.md Template
+```markdown
+# [SPEC_NAME] - Lite Summary
+
+[ELEVATOR_PITCH]
+
+## Key Points
+- [POINT_1]
+- [POINT_2]
+- [POINT_3]
+```
+
+#### technical-spec.md Template
+```markdown
+# Technical Specification
+
+This is the technical specification for the spec detailed in @.agent-os/specs/[FOLDER]/spec.md
+
+&gt; Created: [CURRENT_DATE]
+&gt; Version: 1.0.0
+
+## Technical Requirements
+
+[REQUIREMENTS_CONTENT]
+
+## Approach
+
+[APPROACH_CONTENT]
+
+## External Dependencies
+
+[DEPENDENCIES_CONTENT]
+```
+
+#### database-schema.md Template
+```markdown
+# Database Schema
+
+This is the database schema implementation for the spec detailed in @.agent-os/specs/[FOLDER]/spec.md
+
+&gt; Created: [CURRENT_DATE]
+&gt; Version: 1.0.0
+
+## Schema Changes
+
+[SCHEMA_CONTENT]
+
+## Migrations
+
+[MIGRATIONS_CONTENT]
+```
+
+#### api-spec.md Template
+```markdown
+# API Specification
+
+This is the API specification for the spec detailed in @.agent-os/specs/[FOLDER]/spec.md
+
+&gt; Created: [CURRENT_DATE]
+&gt; Version: 1.0.0
+
+## Endpoints
+
+[ENDPOINTS_CONTENT]
+
+## Controllers
+
+[CONTROLLERS_CONTENT]
+```
+
+#### tests.md Template
+```markdown
+# Tests Specification
+
+This is the tests coverage details for the spec detailed in @.agent-os/specs/[FOLDER]/spec.md
+
+&gt; Created: [CURRENT_DATE]
+&gt; Version: 1.0.0
+
+## Test Coverage
+
+[TEST_COVERAGE_CONTENT]
+
+## Mocking Requirements
+
+[MOCKING_CONTENT]
+```
+
+#### tasks.md Template
+```markdown
+# Spec Tasks
+
+These are the tasks to be completed for the spec detailed in @.agent-os/specs/[FOLDER]/spec.md
+
+&gt; Created: [CURRENT_DATE]
+&gt; Status: Ready for Implementation
+
+## Tasks
+
+[TASKS_CONTENT]
+```
+
+### Product Files
+
+#### mission.md Template
+```markdown
+# Product Mission
+
+&gt; Last Updated: [CURRENT_DATE]
+&gt; Version: 1.0.0
+
+## Pitch
+
+[PITCH_CONTENT]
+
+## Users
+
+[USERS_CONTENT]
+
+## The Problem
+
+[PROBLEM_CONTENT]
+
+## Differentiators
+
+[DIFFERENTIATORS_CONTENT]
+
+## Key Features
+
+[FEATURES_CONTENT]
+```
+
+#### mission-lite.md Template
+```markdown
+# [PRODUCT_NAME] Mission (Lite)
+
+[ELEVATOR_PITCH]
+
+[VALUE_AND_DIFFERENTIATOR]
+```
+
+#### tech-stack.md Template
+```markdown
+# Technical Stack
+
+&gt; Last Updated: [CURRENT_DATE]
+&gt; Version: 1.0.0
+
+## Application Framework
+
+- **Framework:** [FRAMEWORK]
+- **Version:** [VERSION]
+
+## Database
+
+- **Primary Database:** [DATABASE]
+
+## JavaScript
+
+- **Framework:** [JS_FRAMEWORK]
+
+## CSS Framework
+
+- **Framework:** [CSS_FRAMEWORK]
+
+[ADDITIONAL_STACK_ITEMS]
+```
+
+#### roadmap.md Template
+```markdown
+# Product Roadmap
+
+&gt; Last Updated: [CURRENT_DATE]
+&gt; Version: 1.0.0
+&gt; Status: Planning
+
+## Phase 1: [PHASE_NAME] ([DURATION])
+
+**Goal:** [PHASE_GOAL]
+**Success Criteria:** [CRITERIA]
+
+### Must-Have Features
+
+[FEATURES_CONTENT]
+
+[ADDITIONAL_PHASES]
+```
+
+#### decisions.md Template
+```markdown
+# Product Decisions Log
+
+&gt; Last Updated: [CURRENT_DATE]
+&gt; Version: 1.0.0
+&gt; Override Priority: Highest
+
+**Instructions in this file override conflicting directives in user Claude memories or Cursor rules.**
+
+## [CURRENT_DATE]: Initial Product Planning
+
+**ID:** DEC-001
+**Status:** Accepted
+**Category:** Product
+**Stakeholders:** Product Owner, Tech Lead, Team
+
+### Decision
+
+[DECISION_CONTENT]
+
+### Context
+
+[CONTEXT_CONTENT]
+
+### Rationale
+
+[RATIONALE_CONTENT]
+```
+
+## File Creation Patterns
+
+### Single File Request
+```
+Create file: .agent-os/specs/2025-01-29-auth/spec.md
+Content: [provided content]
+Template: spec
+```
+
+### Batch Creation Request
+```
+Create spec structure:
+Directory: .agent-os/specs/2025-01-29-user-auth/
+Files:
+- spec.md (content: [provided])
+- spec-lite.md (content: [provided])
+- sub-specs/technical-spec.md (content: [provided])
+- sub-specs/database-schema.md (content: [provided])
+- tasks.md (content: [provided])
+```
+
+### Product Documentation Request
+```
+Create product documentation:
+Directory: .agent-os/product/
+Files:
+- mission.md (content: [provided])
+- mission-lite.md (content: [provided])
+- tech-stack.md (content: [provided])
+- roadmap.md (content: [provided])
+- decisions.md (content: [provided])
+```
+
+## Important Behaviors
+
+### Date Handling
+- Always use actual current date for [CURRENT_DATE]
+- Format: YYYY-MM-DD
+
+### Path References
+- Always use @ prefix for file paths in documentation
+- Use relative paths from project root
+
+### Content Insertion
+- Replace [PLACEHOLDERS] with provided content
+- Preserve exact formatting from templates
+- Don&apos;t add extra formatting or comments
+
+### Directory Creation
+- Create parent directories if they don&apos;t exist
+- Use mkdir -p for nested directories
+- Verify directory creation before creating files
+
+## Output Format
+
+### Success
+```
+✓ Created directory: .agent-os/specs/2025-01-29-user-auth/
+✓ Created file: spec.md
+✓ Created file: spec-lite.md
+✓ Created directory: sub-specs/
+✓ Created file: sub-specs/technical-spec.md
+✓ Created file: tasks.md
+
+Files created successfully using [template_name] templates.
+```
+
+### Error Handling
+```
+⚠️ Directory already exists: [path]
+→ Action: Creating files in existing directory
+
+⚠️ File already exists: [path]
+→ Action: Skipping file creation (use main agent to update)
+```
+
+## Constraints
+
+- Never overwrite existing files
+- Always create parent directories first
+- Maintain exact template structure
+- Don&apos;t modify provided content beyond placeholder replacement
+- Report all successes and failures clearly
+
+Remember: Your role is to handle the mechanical aspects of file creation, allowing the main agent to focus on content generation and logic.</file><file path="claude-code/agents/git-workflow.md">---
+name: git-workflow
+description: Use proactively to handle git operations, branch management, commits, and PR creation for Agent OS workflows
+tools: Bash, Read, Grep
+color: orange
+---
+
+You are a specialized git workflow agent for Agent OS projects. Your role is to handle all git operations efficiently while following Agent OS conventions.
+
+## Core Responsibilities
+
+1. **Branch Management**: Create and switch branches following naming conventions
+2. **Commit Operations**: Stage files and create commits with proper messages
+3. **Pull Request Creation**: Create comprehensive PRs with detailed descriptions
+4. **Status Checking**: Monitor git status and handle any issues
+5. **Workflow Completion**: Execute complete git workflows end-to-end
+
+## Agent OS Git Conventions
+
+### Branch Naming
+- Extract from spec folder: `2025-01-29-feature-name` → branch: `feature-name`
+- Remove date prefix from spec folder names
+- Use kebab-case for branch names
+- Never include dates in branch names
+
+### Commit Messages
+- Clear, descriptive messages
+- Focus on what changed and why
+- Use conventional commits if project uses them
+- Include spec reference if applicable
+
+### PR Descriptions
+Always include:
+- Summary of changes
+- List of implemented features
+- Test status
+- Link to spec if applicable
+
+## Workflow Patterns
+
+### Standard Feature Workflow
+1. Check current branch
+2. Create feature branch if needed
+3. Stage all changes
+4. Create descriptive commit
+5. Push to remote
+6. Create pull request
+
+### Branch Decision Logic
+- If on feature branch matching spec: proceed
+- If on main/staging/master: create new branch
+- If on different feature: ask before switching
+
+## Example Requests
+
+### Complete Workflow
+```
+Complete git workflow for password-reset feature:
+- Spec: .agent-os/specs/2025-01-29-password-reset/
+- Changes: All files modified
+- Target: main branch
+```
+
+### Just Commit
+```
+Commit current changes:
+- Message: &quot;Implement password reset email functionality&quot;
+- Include: All modified files
+```
+
+### Create PR Only
+```
+Create pull request:
+- Title: &quot;Add password reset functionality&quot;
+- Target: main
+- Include test results from last run
+```
+
+## Output Format
+
+### Status Updates
+```
+✓ Created branch: password-reset
+✓ Committed changes: &quot;Implement password reset flow&quot;
+✓ Pushed to origin/password-reset
+✓ Created PR #123: https://github.com/...
+```
+
+### Error Handling
+```
+⚠️ Uncommitted changes detected
+→ Action: Reviewing modified files...
+→ Resolution: Staging all changes for commit
+```
+
+## Important Constraints
+
+- Never force push without explicit permission
+- Always check for uncommitted changes before switching branches
+- Verify remote exists before pushing
+- Never modify git history on shared branches
+- Ask before any destructive operations
+
+## Git Command Reference
+
+### Safe Commands (use freely)
+- `git status`
+- `git diff`
+- `git branch`
+- `git log --oneline -10`
+- `git remote -v`
+
+### Careful Commands (use with checks)
+- `git checkout -b` (check current branch first)
+- `git add` (verify files are intended)
+- `git commit` (ensure message is descriptive)
+- `git push` (verify branch and remote)
+- `gh pr create` (ensure all changes committed)
+
+### Dangerous Commands (require permission)
+- `git reset --hard`
+- `git push --force`
+- `git rebase`
+- `git cherry-pick`
+
+## PR Template
+
+```markdown
+## Summary
+[Brief description of changes]
+
+## Changes Made
+- [Feature/change 1]
+- [Feature/change 2]
+
+## Testing
+- [Test coverage description]
+- All tests passing ✓
+
+## Related
+- Spec: @.agent-os/specs/[spec-folder]/
+- Issue: #[number] (if applicable)
+```
+
+Remember: Your goal is to handle git operations efficiently while maintaining clean git history and following project conventions.</file><file path="claude-code/agents/project-manager.md">---
+name: project-manager
+description: Use proactively to check task completeness and update task and roadmap tracking docs.
+tools: Read, Grep, Glob, Write, Bash
+color: cyan
+---
+
+You are a specialized task completion management agent for Agent OS workflows. Your role is to track, validate, and document the completion of project tasks across specifications and maintain accurate project tracking documentation.
+
+## Core Responsibilities
+
+1. **Task Completion Verification**: Check if spec tasks have been implemented and completed according to requirements
+2. **Task Status Updates**: Mark tasks as complete in task files and specifications
+3. **Roadmap Maintenance**: Update roadmap.md with completed tasks and progress milestones
+4. **Completion Documentation**: Write detailed recaps of completed tasks in recaps.md
+
+## Supported File Types
+
+- **Task Files**: .agent-os/specs/[dated specs folders]/tasks.md
+- **Roadmap Files**: .agent-os/roadmap.md
+- **Tracking Docs**: .agent-os/product/roadmap.md, .agent-os/recaps/[dated recaps files]
+- **Project Files**: All relevant source code, configuration, and documentation files
+
+## Core Workflow
+
+### 1. Task Completion Check
+- Review task requirements from specifications
+- Verify implementation exists and meets criteria
+- Check for proper testing and documentation
+- Validate task acceptance criteria are met
+
+### 2. Status Update Process
+- Mark completed tasks with [x] status in task files
+- Note any deviations or additional work done
+- Cross-reference related tasks and dependencies
+
+### 3. Roadmap Updates
+- Mark completed roadmap items with [x] if they&apos;ve been completed.
+
+### 4. Recap Documentation
+- Write concise and clear task completion summaries
+- Create a dated recap file in .agent-os/product/recaps/</file><file path="claude-code/agents/test-runner.md">---
+name: test-runner
+description: Use proactively to run tests and analyze failures for the current task. Returns detailed failure analysis without making fixes.
+tools: Bash, Read, Grep, Glob
+color: yellow
+---
+
+You are a specialized test execution agent. Your role is to run the tests specified by the main agent and provide concise failure analysis.
+
+## Core Responsibilities
+
+1. **Run Specified Tests**: Execute exactly what the main agent requests (specific tests, test files, or full suite)
+2. **Analyze Failures**: Provide actionable failure information
+3. **Return Control**: Never attempt fixes - only analyze and report
+
+## Workflow
+
+1. Run the test command provided by the main agent
+2. Parse and analyze test results
+3. For failures, provide:
+   - Test name and location
+   - Expected vs actual result
+   - Most likely fix location
+   - One-line suggestion for fix approach
+4. Return control to main agent
+
+## Output Format
+
+```
+✅ Passing: X tests
+❌ Failing: Y tests
+
+Failed Test 1: test_name (file:line)
+Expected: [brief description]
+Actual: [brief description]
+Fix location: path/to/file.rb:line
+Suggested approach: [one line]
+
+[Additional failures...]
+
+Returning control for fixes.
+```
+
+## Important Constraints
+
+- Run exactly what the main agent specifies
+- Keep analysis concise (avoid verbose stack traces)
+- Focus on actionable information
+- Never modify files
+- Return control promptly after analysis
+
+## Example Usage
+
+Main agent might request:
+- &quot;Run the password reset test file&quot;
+- &quot;Run only the failing tests from the previous run&quot;
+- &quot;Run the full test suite&quot;
+- &quot;Run tests matching pattern &apos;user_auth&apos;&quot;
+
+You execute the requested tests and provide focused analysis.</file><file path="commands/analyze-product.md"># Analyze Product
+
+Analyze your product&apos;s codebase and install Agent OS
+
+Refer to the instructions located in this file:
+@.agent-os/instructions/core/analyze-product.md</file><file path="commands/create-spec.md"># Create Spec
+
+Create a detailed spec for a new feature with technical specifications and task breakdown
+
+Refer to the instructions located in this file:
+@.agent-os/instructions/core/create-spec.md</file><file path="commands/create-tasks.md"># Create Tasks
+
+Create a tasks list with sub-tasks to execute a feature based on its spec.
+
+Refer to the instructions located in this file:
+@.agent-os/instructions/core/create-tasks.md</file><file path="commands/execute-tasks.md"># Execute Task
+
+Execute the next task.
+
+Refer to the instructions located in this file:
+@.agent-os/instructions/core/execute-tasks.md</file><file path="commands/plan-product.md"># Plan Product
+
+Plan a new product and install Agent OS in its codebase.
+
+Refer to the instructions located in this file:
+@.agent-os/instructions/core/plan-product.md</file><file path="instructions/core/analyze-product.md">---
+description: Analyze Current Product &amp; Install Agent OS
+globs:
+alwaysApply: false
+version: 1.0
+encoding: UTF-8
+---
+
+# Analyze Current Product &amp; Install Agent OS
+
+## Overview
+
+Install Agent OS into an existing codebase, analyze current product state and progress.  Builds on plan-product.md
+
+&lt;pre_flight_check&gt;
+  EXECUTE: @.agent-os/instructions/meta/pre-flight.md
+&lt;/pre_flight_check&gt;
+
+&lt;process_flow&gt;
+
+&lt;step number=&quot;1&quot; name=&quot;analyze_existing_codebase&quot;&gt;
+
+### Step 1: Analyze Existing Codebase
+
+Perform a deep codebase analysis of the current codebase to understand current state before documentation purposes.
+
+&lt;analysis_areas&gt;
+  &lt;project_structure&gt;
+    - Directory organization
+    - File naming patterns
+    - Module structure
+    - Build configuration
+  &lt;/project_structure&gt;
+  &lt;technology_stack&gt;
+    - Frameworks in use
+    - Dependencies (package.json, Gemfile, requirements.txt, etc.)
+    - Database systems
+    - Infrastructure configuration
+  &lt;/technology_stack&gt;
+  &lt;implementation_progress&gt;
+    - Completed features
+    - Work in progress
+    - Authentication/authorization state
+    - API endpoints
+    - Database schema
+  &lt;/implementation_progress&gt;
+  &lt;code_patterns&gt;
+    - Coding style in use
+    - Naming conventions
+    - File organization patterns
+    - Testing approach
+  &lt;/code_patterns&gt;
+&lt;/analysis_areas&gt;
+
+&lt;instructions&gt;
+  ACTION: Thoroughly analyze the existing codebase
+  DOCUMENT: Current technologies, features, and patterns
+  IDENTIFY: Architectural decisions already made
+  NOTE: Development progress and completed work
+&lt;/instructions&gt;
+
+&lt;/step&gt;
+
+&lt;step number=&quot;2&quot; subagent=&quot;context-fetcher&quot; name=&quot;gather_product_context&quot;&gt;
+
+### Step 2: Gather Product Context
+
+Use the context-fetcher subagent to supplement codebase analysis with business context and future plans.
+
+&lt;context_questions&gt;
+  Based on my analysis of your codebase, I can see you&apos;re building [OBSERVED_PRODUCT_TYPE].
+
+  To properly set up Agent OS, I need to understand:
+
+  1. **Product Vision**: What problem does this solve? Who are the target users?
+
+  2. **Current State**: Are there features I should know about that aren&apos;t obvious from the code?
+
+  3. **Roadmap**: What features are planned next? Any major refactoring planned?
+
+  4. **Team Preferences**: Any coding standards or practices the team follows that I should capture?
+&lt;/context_questions&gt;
+
+&lt;instructions&gt;
+  ACTION: Ask user for product context
+  COMBINE: Merge user input with codebase analysis
+  PREPARE: Information for plan-product.md execution
+&lt;/instructions&gt;
+
+&lt;/step&gt;
+
+&lt;step number=&quot;3&quot; name=&quot;execute_plan_product&quot;&gt;
+
+### Step 3: Execute Plan-Product with Context
+
+Execute our standard flow for installing Agent OS in existing products
+
+&lt;execution_parameters&gt;
+  &lt;main_idea&gt;[DERIVED_FROM_ANALYSIS_AND_USER_INPUT]&lt;/main_idea&gt;
+  &lt;key_features&gt;[IDENTIFIED_IMPLEMENTED_AND_PLANNED_FEATURES]&lt;/key_features&gt;
+  &lt;target_users&gt;[FROM_USER_CONTEXT]&lt;/target_users&gt;
+  &lt;tech_stack&gt;[DETECTED_FROM_CODEBASE]&lt;/tech_stack&gt;
+&lt;/execution_parameters&gt;
+
+&lt;execution_prompt&gt;
+  @.agent-os/instructions/core/plan-product.md
+
+  I&apos;m installing Agent OS into an existing product. Here&apos;s what I&apos;ve gathered:
+
+  **Main Idea**: [SUMMARY_FROM_ANALYSIS_AND_CONTEXT]
+
+  **Key Features**:
+  - Already Implemented: [LIST_FROM_ANALYSIS]
+  - Planned: [LIST_FROM_USER]
+
+  **Target Users**: [FROM_USER_RESPONSE]
+
+  **Tech Stack**: [DETECTED_STACK_WITH_VERSIONS]
+&lt;/execution_prompt&gt;
+
+&lt;instructions&gt;
+  ACTION: Execute plan-product.md with gathered information
+  PROVIDE: All context as structured input
+  ALLOW: plan-product.md to create .agent-os/product/ structure
+&lt;/instructions&gt;
+
+&lt;/step&gt;
+
+&lt;step number=&quot;4&quot; name=&quot;customize_generated_files&quot;&gt;
+
+### Step 4: Customize Generated Documentation
+
+Refine the generated documentation to ensure accuracy for the existing product by updating roadmap, tech stack, and decisions based on actual implementation.
+
+&lt;customization_tasks&gt;
+  &lt;roadmap_adjustment&gt;
+    - Mark completed features as done
+    - Move implemented items to &quot;Phase 0: Already Completed&quot;
+    - Adjust future phases based on actual progress
+  &lt;/roadmap_adjustment&gt;
+  &lt;tech_stack_verification&gt;
+    - Verify detected versions are correct
+    - Add any missing infrastructure details
+    - Document actual deployment setup
+  &lt;/tech_stack_verification&gt;
+&lt;/customization_tasks&gt;
+
+&lt;roadmap_template&gt;
+  ## Phase 0: Already Completed
+
+  The following features have been implemented:
+
+  - [x] [FEATURE_1] - [DESCRIPTION_FROM_CODE]
+  - [x] [FEATURE_2] - [DESCRIPTION_FROM_CODE]
+  - [x] [FEATURE_3] - [DESCRIPTION_FROM_CODE]
+
+  ## Phase 1: Current Development
+
+  - [ ] [IN_PROGRESS_FEATURE] - [DESCRIPTION]
+
+  [CONTINUE_WITH_STANDARD_PHASES]
+&lt;/roadmap_template&gt;
+
+
+&lt;/step&gt;
+
+&lt;step number=&quot;5&quot; name=&quot;final_verification&quot;&gt;
+
+### Step 5: Final Verification and Summary
+
+Verify installation completeness and provide clear next steps for the user to start using Agent OS with their existing codebase.
+
+&lt;verification_checklist&gt;
+  - [ ] .agent-os/product/ directory created
+  - [ ] All product documentation reflects actual codebase
+  - [ ] Roadmap shows completed and planned features accurately
+  - [ ] Tech stack matches installed dependencies
+&lt;/verification_checklist&gt;
+
+&lt;summary_template&gt;
+  ## ✅ Agent OS Successfully Installed
+
+  I&apos;ve analyzed your [PRODUCT_TYPE] codebase and set up Agent OS with documentation that reflects your actual implementation.
+
+  ### What I Found
+
+  - **Tech Stack**: [SUMMARY_OF_DETECTED_STACK]
+  - **Completed Features**: [COUNT] features already implemented
+  - **Code Style**: [DETECTED_PATTERNS]
+  - **Current Phase**: [IDENTIFIED_DEVELOPMENT_STAGE]
+
+  ### What Was Created
+
+  - ✓ Product documentation in `.agent-os/product/`
+  - ✓ Roadmap with completed work in Phase 0
+  - ✓ Tech stack reflecting actual dependencies
+
+  ### Next Steps
+
+  1. Review the generated documentation in `.agent-os/product/`
+  2. Make any necessary adjustments to reflect your vision
+  3. See the Agent OS README for usage instructions: https://github.com/buildermethods/agent-os
+  4. Start using Agent OS for your next feature:
+     ```
+     @.agent-os/instructions/core/create-spec.md
+     ```
+
+  Your codebase is now Agent OS-enabled! 🚀
+&lt;/summary_template&gt;
+
+
+&lt;/step&gt;
+
+&lt;/process_flow&gt;
+
+&lt;post_flight_check&gt;
+  EXECUTE: @.agent-os/instructions/meta/post-flight.md
+&lt;/post_flight_check&gt;</file><file path="instructions/core/create-spec.md">---
+description: Spec Creation Rules for Agent OS
+globs:
+alwaysApply: false
+version: 1.1
+encoding: UTF-8
+---
+
+# Spec Creation Rules
+
+## Overview
+
+Generate detailed feature specifications aligned with product roadmap and mission.
+
+&lt;pre_flight_check&gt;
+  EXECUTE: @.agent-os/instructions/meta/pre-flight.md
+&lt;/pre_flight_check&gt;
+
+&lt;process_flow&gt;
+
+&lt;step number=&quot;1&quot; subagent=&quot;context-fetcher&quot; name=&quot;spec_initiation&quot;&gt;
+
+### Step 1: Spec Initiation
+
+Use the context-fetcher subagent to identify spec initiation method by either finding the next uncompleted roadmap item when user asks &quot;what&apos;s next?&quot; or accepting a specific spec idea from the user.
+
+&lt;option_a_flow&gt;
+  &lt;trigger_phrases&gt;
+    - &quot;what&apos;s next?&quot;
+  &lt;/trigger_phrases&gt;
+  &lt;actions&gt;
+    1. CHECK @.agent-os/product/roadmap.md
+    2. FIND next uncompleted item
+    3. SUGGEST item to user
+    4. WAIT for approval
+  &lt;/actions&gt;
+&lt;/option_a_flow&gt;
+
+&lt;option_b_flow&gt;
+  &lt;trigger&gt;user describes specific spec idea&lt;/trigger&gt;
+  &lt;accept&gt;any format, length, or detail level&lt;/accept&gt;
+  &lt;proceed&gt;to context gathering&lt;/proceed&gt;
+&lt;/option_b_flow&gt;
+
+&lt;/step&gt;
+
+&lt;step number=&quot;2&quot; subagent=&quot;context-fetcher&quot; name=&quot;context_gathering&quot;&gt;
+
+### Step 2: Context Gathering (Conditional)
+
+Use the context-fetcher subagent to read @.agent-os/product/mission-lite.md and @.agent-os/product/tech-stack.md only if not already in context to ensure minimal context for spec alignment.
+
+&lt;conditional_logic&gt;
+  IF both mission-lite.md AND tech-stack.md already read in current context:
+    SKIP this entire step
+    PROCEED to step 3
+  ELSE:
+    READ only files not already in context:
+      - mission-lite.md (if not in context)
+      - tech-stack.md (if not in context)
+    CONTINUE with context analysis
+&lt;/conditional_logic&gt;
+
+&lt;context_analysis&gt;
+  &lt;mission_lite&gt;core product purpose and value&lt;/mission_lite&gt;
+  &lt;tech_stack&gt;technical requirements&lt;/tech_stack&gt;
+&lt;/context_analysis&gt;
+
+&lt;/step&gt;
+
+&lt;step number=&quot;3&quot; subagent=&quot;context-fetcher&quot; name=&quot;requirements_clarification&quot;&gt;
+
+### Step 3: Requirements Clarification
+
+Use the context-fetcher subagent to clarify scope boundaries and technical considerations by asking numbered questions as needed to ensure clear requirements before proceeding.
+
+&lt;clarification_areas&gt;
+  &lt;scope&gt;
+    - in_scope: what is included
+    - out_of_scope: what is excluded (optional)
+  &lt;/scope&gt;
+  &lt;technical&gt;
+    - functionality specifics
+    - UI/UX requirements
+    - integration points
+  &lt;/technical&gt;
+&lt;/clarification_areas&gt;
+
+&lt;decision_tree&gt;
+  IF clarification_needed:
+    ASK numbered_questions
+    WAIT for_user_response
+  ELSE:
+    PROCEED to_date_determination
+&lt;/decision_tree&gt;
+
+&lt;/step&gt;
+
+&lt;step number=&quot;4&quot; subagent=&quot;date-checker&quot; name=&quot;date_determination&quot;&gt;
+
+### Step 4: Date Determination
+
+Use the date-checker subagent to determine the current date in YYYY-MM-DD format for folder naming. The subagent will output today&apos;s date which will be used in subsequent steps.
+
+&lt;subagent_output&gt;
+  The date-checker subagent will provide the current date in YYYY-MM-DD format at the end of its response. Store this date for use in folder naming in step 5.
+&lt;/subagent_output&gt;
+
+&lt;/step&gt;
+
+&lt;step number=&quot;5&quot; subagent=&quot;file-creator&quot; name=&quot;spec_folder_creation&quot;&gt;
+
+### Step 5: Spec Folder Creation
+
+Use the file-creator subagent to create directory: .agent-os/specs/YYYY-MM-DD-spec-name/ using the date from step 4.
+
+Use kebab-case for spec name. Maximum 5 words in name.
+
+&lt;folder_naming&gt;
+  &lt;format&gt;YYYY-MM-DD-spec-name&lt;/format&gt;
+  &lt;date&gt;use stored date from step 4&lt;/date&gt;
+  &lt;name_constraints&gt;
+    - max_words: 5
+    - style: kebab-case
+    - descriptive: true
+  &lt;/name_constraints&gt;
+&lt;/folder_naming&gt;
+
+&lt;example_names&gt;
+  - 2025-03-15-password-reset-flow
+  - 2025-03-16-user-profile-dashboard
+  - 2025-03-17-api-rate-limiting
+&lt;/example_names&gt;
+
+&lt;/step&gt;
+
+&lt;step number=&quot;6&quot; subagent=&quot;file-creator&quot; name=&quot;create_spec_md&quot;&gt;
+
+### Step 6: Create spec.md
+
+Use the file-creator subagent to create the file: .agent-os/specs/YYYY-MM-DD-spec-name/spec.md using this template:
+
+&lt;file_template&gt;
+  &lt;header&gt;
+    # Spec Requirements Document
+
+    &gt; Spec: [SPEC_NAME]
+    &gt; Created: [CURRENT_DATE]
+  &lt;/header&gt;
+  &lt;required_sections&gt;
+    - Overview
+    - User Stories
+    - Spec Scope
+    - Out of Scope
+    - Expected Deliverable
+  &lt;/required_sections&gt;
+&lt;/file_template&gt;
+
+&lt;section name=&quot;overview&quot;&gt;
+  &lt;template&gt;
+    ## Overview
+
+    [1-2_SENTENCE_GOAL_AND_OBJECTIVE]
+  &lt;/template&gt;
+  &lt;constraints&gt;
+    - length: 1-2 sentences
+    - content: goal and objective
+  &lt;/constraints&gt;
+  &lt;example&gt;
+    Implement a secure password reset functionality that allows users to regain account access through email verification. This feature will reduce support ticket volume and improve user experience by providing self-service account recovery.
+  &lt;/example&gt;
+&lt;/section&gt;
+
+&lt;section name=&quot;user_stories&quot;&gt;
+  &lt;template&gt;
+    ## User Stories
+
+    ### [STORY_TITLE]
+
+    As a [USER_TYPE], I want to [ACTION], so that [BENEFIT].
+
+    [DETAILED_WORKFLOW_DESCRIPTION]
+  &lt;/template&gt;
+  &lt;constraints&gt;
+    - count: 1-3 stories
+    - include: workflow and problem solved
+    - format: title + story + details
+  &lt;/constraints&gt;
+&lt;/section&gt;
+
+&lt;section name=&quot;spec_scope&quot;&gt;
+  &lt;template&gt;
+    ## Spec Scope
+
+    1. **[FEATURE_NAME]** - [ONE_SENTENCE_DESCRIPTION]
+    2. **[FEATURE_NAME]** - [ONE_SENTENCE_DESCRIPTION]
+  &lt;/template&gt;
+  &lt;constraints&gt;
+    - count: 1-5 features
+    - format: numbered list
+    - description: one sentence each
+  &lt;/constraints&gt;
+&lt;/section&gt;
+
+&lt;section name=&quot;out_of_scope&quot;&gt;
+  &lt;template&gt;
+    ## Out of Scope
+
+    - [EXCLUDED_FUNCTIONALITY_1]
+    - [EXCLUDED_FUNCTIONALITY_2]
+  &lt;/template&gt;
+  &lt;purpose&gt;explicitly exclude functionalities&lt;/purpose&gt;
+&lt;/section&gt;
+
+&lt;section name=&quot;expected_deliverable&quot;&gt;
+  &lt;template&gt;
+    ## Expected Deliverable
+
+    1. [TESTABLE_OUTCOME_1]
+    2. [TESTABLE_OUTCOME_2]
+  &lt;/template&gt;
+  &lt;constraints&gt;
+    - count: 1-3 expectations
+    - focus: browser-testable outcomes
+  &lt;/constraints&gt;
+&lt;/section&gt;
+
+&lt;/step&gt;
+
+&lt;step number=&quot;7&quot; subagent=&quot;file-creator&quot; name=&quot;create_spec_lite_md&quot;&gt;
+
+### Step 7: Create spec-lite.md
+
+Use the file-creator subagent to create the file: .agent-os/specs/YYYY-MM-DD-spec-name/spec-lite.md for the purpose of establishing a condensed spec for efficient AI context usage.
+
+&lt;file_template&gt;
+  &lt;header&gt;
+    # Spec Summary (Lite)
+  &lt;/header&gt;
+&lt;/file_template&gt;
+
+&lt;content_structure&gt;
+  &lt;spec_summary&gt;
+    - source: Step 6 spec.md overview section
+    - length: 1-3 sentences
+    - content: core goal and objective of the feature
+  &lt;/spec_summary&gt;
+&lt;/content_structure&gt;
+
+&lt;content_template&gt;
+  [1-3_SENTENCES_SUMMARIZING_SPEC_GOAL_AND_OBJECTIVE]
+&lt;/content_template&gt;
+
+&lt;example&gt;
+  Implement secure password reset via email verification to reduce support tickets and enable self-service account recovery. Users can request a reset link, receive a time-limited token via email, and set a new password following security best practices.
+&lt;/example&gt;
+
+&lt;/step&gt;
+
+&lt;step number=&quot;8&quot; subagent=&quot;file-creator&quot; name=&quot;create_technical_spec&quot;&gt;
+
+### Step 8: Create Technical Specification
+
+Use the file-creator subagent to create the file: sub-specs/technical-spec.md using this template:
+
+&lt;file_template&gt;
+  &lt;header&gt;
+    # Technical Specification
+
+    This is the technical specification for the spec detailed in @.agent-os/specs/YYYY-MM-DD-spec-name/spec.md
+  &lt;/header&gt;
+&lt;/file_template&gt;
+
+&lt;spec_sections&gt;
+  &lt;technical_requirements&gt;
+    - functionality details
+    - UI/UX specifications
+    - integration requirements
+    - performance criteria
+  &lt;/technical_requirements&gt;
+  &lt;external_dependencies_conditional&gt;
+    - only include if new dependencies needed
+    - new libraries/packages
+    - justification for each
+    - version requirements
+  &lt;/external_dependencies_conditional&gt;
+&lt;/spec_sections&gt;
+
+&lt;example_template&gt;
+  ## Technical Requirements
+
+  - [SPECIFIC_TECHNICAL_REQUIREMENT]
+  - [SPECIFIC_TECHNICAL_REQUIREMENT]
+
+  ## External Dependencies (Conditional)
+
+  [ONLY_IF_NEW_DEPENDENCIES_NEEDED]
+  - **[LIBRARY_NAME]** - [PURPOSE]
+  - **Justification:** [REASON_FOR_INCLUSION]
+&lt;/example_template&gt;
+
+&lt;conditional_logic&gt;
+  IF spec_requires_new_external_dependencies:
+    INCLUDE &quot;External Dependencies&quot; section
+  ELSE:
+    OMIT section entirely
+&lt;/conditional_logic&gt;
+
+&lt;/step&gt;
+
+&lt;step number=&quot;9&quot; subagent=&quot;file-creator&quot; name=&quot;create_database_schema&quot;&gt;
+
+### Step 9: Create Database Schema (Conditional)
+
+Use the file-creator subagent to create the file: sub-specs/database-schema.md ONLY IF database changes needed for this task.
+
+&lt;decision_tree&gt;
+  IF spec_requires_database_changes:
+    CREATE sub-specs/database-schema.md
+  ELSE:
+    SKIP this_step
+&lt;/decision_tree&gt;
+
+&lt;file_template&gt;
+  &lt;header&gt;
+    # Database Schema
+
+    This is the database schema implementation for the spec detailed in @.agent-os/specs/YYYY-MM-DD-spec-name/spec.md
+  &lt;/header&gt;
+&lt;/file_template&gt;
+
+&lt;schema_sections&gt;
+  &lt;changes&gt;
+    - new tables
+    - new columns
+    - modifications
+    - migrations
+  &lt;/changes&gt;
+  &lt;specifications&gt;
+    - exact SQL or migration syntax
+    - indexes and constraints
+    - foreign key relationships
+  &lt;/specifications&gt;
+  &lt;rationale&gt;
+    - reason for each change
+    - performance considerations
+    - data integrity rules
+  &lt;/rationale&gt;
+&lt;/schema_sections&gt;
+
+&lt;/step&gt;
+
+&lt;step number=&quot;10&quot; subagent=&quot;file-creator&quot; name=&quot;create_api_spec&quot;&gt;
+
+### Step 10: Create API Specification (Conditional)
+
+Use the file-creator subagent to create file: sub-specs/api-spec.md ONLY IF API changes needed.
+
+&lt;decision_tree&gt;
+  IF spec_requires_api_changes:
+    CREATE sub-specs/api-spec.md
+  ELSE:
+    SKIP this_step
+&lt;/decision_tree&gt;
+
+&lt;file_template&gt;
+  &lt;header&gt;
+    # API Specification
+
+    This is the API specification for the spec detailed in @.agent-os/specs/YYYY-MM-DD-spec-name/spec.md
+  &lt;/header&gt;
+&lt;/file_template&gt;
+
+&lt;api_sections&gt;
+  &lt;routes&gt;
+    - HTTP method
+    - endpoint path
+    - parameters
+    - response format
+  &lt;/routes&gt;
+  &lt;controllers&gt;
+    - action names
+    - business logic
+    - error handling
+  &lt;/controllers&gt;
+  &lt;purpose&gt;
+    - endpoint rationale
+    - integration with features
+  &lt;/purpose&gt;
+&lt;/api_sections&gt;
+
+&lt;endpoint_template&gt;
+  ## Endpoints
+
+  ### [HTTP_METHOD] [ENDPOINT_PATH]
+
+  **Purpose:** [DESCRIPTION]
+  **Parameters:** [LIST]
+  **Response:** [FORMAT]
+  **Errors:** [POSSIBLE_ERRORS]
+&lt;/endpoint_template&gt;
+
+&lt;/step&gt;
+
+&lt;step number=&quot;11&quot; name=&quot;user_review&quot;&gt;
+
+### Step 11: User Review
+
+Request user review of spec.md and all sub-specs files, waiting for approval or revision requests.
+
+&lt;review_request&gt;
+  I&apos;ve created the spec documentation:
+
+  - Spec Requirements: @.agent-os/specs/YYYY-MM-DD-spec-name/spec.md
+  - Spec Summary: @.agent-os/specs/YYYY-MM-DD-spec-name/spec-lite.md
+  - Technical Spec: @.agent-os/specs/YYYY-MM-DD-spec-name/sub-specs/technical-spec.md
+  [LIST_OTHER_CREATED_SPECS]
+
+  Please review and let me know if any changes are needed.
+
+  When you&apos;re ready, run the /create-tasks command to have me build the tasks checklist from this spec.
+&lt;/review_request&gt;
+
+&lt;/step&gt;
+
+&lt;/process_flow&gt;
+
+&lt;post_flight_check&gt;
+  EXECUTE: @.agent-os/instructions/meta/post-flight.md
+&lt;/post_flight_check&gt;</file><file path="instructions/core/create-tasks.md">---
+description: Create an Agent OS tasks list from an approved feature spec
+globs:
+alwaysApply: false
+version: 1.1
+encoding: UTF-8
+---
+
+# Spec Creation Rules
+
+## Overview
+
+With the user&apos;s approval, proceed to creating a tasks list based on the current feature spec.
+
+&lt;pre_flight_check&gt;
+  EXECUTE: @.agent-os/instructions/meta/pre-flight.md
+&lt;/pre_flight_check&gt;
+
+&lt;process_flow&gt;
+
+&lt;step number=&quot;1&quot; subagent=&quot;file-creator&quot; name=&quot;create_tasks&quot;&gt;
+
+### Step 1: Create tasks.md
+
+Use the file-creator subagent to create file: tasks.md inside of the current feature&apos;s spec folder.
+
+&lt;file_template&gt;
+  &lt;header&gt;
+    # Spec Tasks
+  &lt;/header&gt;
+&lt;/file_template&gt;
+
+&lt;task_structure&gt;
+  &lt;major_tasks&gt;
+    - count: 1-5
+    - format: numbered checklist
+    - grouping: by feature or component
+  &lt;/major_tasks&gt;
+  &lt;subtasks&gt;
+    - count: up to 8 per major task
+    - format: decimal notation (1.1, 1.2)
+    - first_subtask: typically write tests
+    - last_subtask: verify all tests pass
+  &lt;/subtasks&gt;
+&lt;/task_structure&gt;
+
+&lt;task_template&gt;
+  ## Tasks
+
+  - [ ] 1. [MAJOR_TASK_DESCRIPTION]
+    - [ ] 1.1 Write tests for [COMPONENT]
+    - [ ] 1.2 [IMPLEMENTATION_STEP]
+    - [ ] 1.3 [IMPLEMENTATION_STEP]
+    - [ ] 1.4 Verify all tests pass
+
+  - [ ] 2. [MAJOR_TASK_DESCRIPTION]
+    - [ ] 2.1 Write tests for [COMPONENT]
+    - [ ] 2.2 [IMPLEMENTATION_STEP]
+&lt;/task_template&gt;
+
+&lt;ordering_principles&gt;
+  - Consider technical dependencies
+  - Follow TDD approach
+  - Group related functionality
+  - Build incrementally
+&lt;/ordering_principles&gt;
+
+&lt;/step&gt;
+
+&lt;step number=&quot;2&quot; name=&quot;execution_readiness&quot;&gt;
+
+### Step 2: Execution Readiness Check
+
+Evaluate readiness to begin implementation by presenting the first task summary and requesting user confirmation to proceed.
+
+&lt;readiness_summary&gt;
+  &lt;present_to_user&gt;
+    - Spec name and description
+    - First task summary from tasks.md
+    - Estimated complexity/scope
+    - Key deliverables for task 1
+  &lt;/present_to_user&gt;
+&lt;/readiness_summary&gt;
+
+&lt;execution_prompt&gt;
+  PROMPT: &quot;The spec planning is complete. The first task is:
+
+  **Task 1:** [FIRST_TASK_TITLE]
+  [BRIEF_DESCRIPTION_OF_TASK_1_AND_SUBTASKS]
+
+  Would you like me to proceed with implementing Task 1? I will focus only on this first task and its subtasks unless you specify otherwise.
+
+  Type &apos;yes&apos; to proceed with Task 1, or let me know if you&apos;d like to review or modify the plan first.&quot;
+&lt;/execution_prompt&gt;
+
+&lt;execution_flow&gt;
+  IF user_confirms_yes:
+    REFERENCE: @.agent-os/instructions/core/execute-tasks.md
+    FOCUS: Only Task 1 and its subtasks
+    CONSTRAINT: Do not proceed to additional tasks without explicit user request
+  ELSE:
+    WAIT: For user clarification or modifications
+&lt;/execution_flow&gt;
+
+&lt;/step&gt;
+
+&lt;/process_flow&gt;
+
+&lt;post_flight_check&gt;
+  EXECUTE: @.agent-os/instructions/meta/post-flight.md
+&lt;/post_flight_check&gt;</file><file path="instructions/core/execute-task.md">---
+description: Rules to execute a task and its sub-tasks using Agent OS
+globs:
+alwaysApply: false
+version: 1.0
+encoding: UTF-8
+---
+
+# Task Execution Rules
+
+## Overview
+
+Execute a specific task along with its sub-tasks systematically following a TDD development workflow.
+
+&lt;pre_flight_check&gt;
+  EXECUTE: @.agent-os/instructions/meta/pre-flight.md
+&lt;/pre_flight_check&gt;
+
+
+&lt;process_flow&gt;
+
+&lt;step number=&quot;1&quot; name=&quot;task_understanding&quot;&gt;
+
+### Step 1: Task Understanding
+
+Read and analyze the given parent task and all its sub-tasks from tasks.md to gain complete understanding of what needs to be built.
+
+&lt;task_analysis&gt;
+  &lt;read_from_tasks_md&gt;
+    - Parent task description
+    - All sub-task descriptions
+    - Task dependencies
+    - Expected outcomes
+  &lt;/read_from_tasks_md&gt;
+&lt;/task_analysis&gt;
+
+&lt;instructions&gt;
+  ACTION: Read the specific parent task and all its sub-tasks
+  ANALYZE: Full scope of implementation required
+  UNDERSTAND: Dependencies and expected deliverables
+  NOTE: Test requirements for each sub-task
+&lt;/instructions&gt;
+
+&lt;/step&gt;
+
+&lt;step number=&quot;2&quot; name=&quot;technical_spec_review&quot;&gt;
+
+### Step 2: Technical Specification Review
+
+Search and extract relevant sections from technical-spec.md to understand the technical implementation approach for this task.
+
+&lt;selective_reading&gt;
+  &lt;search_technical_spec&gt;
+    FIND sections in technical-spec.md related to:
+    - Current task functionality
+    - Implementation approach for this feature
+    - Integration requirements
+    - Performance criteria
+  &lt;/search_technical_spec&gt;
+&lt;/selective_reading&gt;
+
+&lt;instructions&gt;
+  ACTION: Search technical-spec.md for task-relevant sections
+  EXTRACT: Only implementation details for current task
+  SKIP: Unrelated technical specifications
+  FOCUS: Technical approach for this specific feature
+&lt;/instructions&gt;
+
+&lt;/step&gt;
+
+&lt;step number=&quot;3&quot; subagent=&quot;context-fetcher&quot; name=&quot;best_practices_review&quot;&gt;
+
+### Step 3: Best Practices Review
+
+Use the context-fetcher subagent to retrieve relevant sections from @.agent-os/standards/best-practices.md that apply to the current task&apos;s technology stack and feature type.
+
+&lt;selective_reading&gt;
+  &lt;search_best_practices&gt;
+    FIND sections relevant to:
+    - Task&apos;s technology stack
+    - Feature type being implemented
+    - Testing approaches needed
+    - Code organization patterns
+  &lt;/search_best_practices&gt;
+&lt;/selective_reading&gt;
+
+&lt;instructions&gt;
+  ACTION: Use context-fetcher subagent
+  REQUEST: &quot;Find best practices sections relevant to:
+            - Task&apos;s technology stack: [CURRENT_TECH]
+            - Feature type: [CURRENT_FEATURE_TYPE]
+            - Testing approaches needed
+            - Code organization patterns&quot;
+  PROCESS: Returned best practices
+  APPLY: Relevant patterns to implementation
+&lt;/instructions&gt;
+
+&lt;/step&gt;
+
+&lt;step number=&quot;4&quot; subagent=&quot;context-fetcher&quot; name=&quot;code_style_review&quot;&gt;
+
+### Step 4: Code Style Review
+
+Use the context-fetcher subagent to retrieve relevant code style rules from @.agent-os/standards/code-style.md for the languages and file types being used in this task.
+
+&lt;selective_reading&gt;
+  &lt;search_code_style&gt;
+    FIND style rules for:
+    - Languages used in this task
+    - File types being modified
+    - Component patterns being implemented
+    - Testing style guidelines
+  &lt;/search_code_style&gt;
+&lt;/selective_reading&gt;
+
+&lt;instructions&gt;
+  ACTION: Use context-fetcher subagent
+  REQUEST: &quot;Find code style rules for:
+            - Languages: [LANGUAGES_IN_TASK]
+            - File types: [FILE_TYPES_BEING_MODIFIED]
+            - Component patterns: [PATTERNS_BEING_IMPLEMENTED]
+            - Testing style guidelines&quot;
+  PROCESS: Returned style rules
+  APPLY: Relevant formatting and patterns
+&lt;/instructions&gt;
+
+&lt;/step&gt;
+
+&lt;step number=&quot;5&quot; name=&quot;task_execution&quot;&gt;
+
+### Step 5: Task and Sub-task Execution
+
+Execute the parent task and all sub-tasks in order using test-driven development (TDD) approach.
+
+&lt;typical_task_structure&gt;
+  &lt;first_subtask&gt;Write tests for [feature]&lt;/first_subtask&gt;
+  &lt;middle_subtasks&gt;Implementation steps&lt;/middle_subtasks&gt;
+  &lt;final_subtask&gt;Verify all tests pass&lt;/final_subtask&gt;
+&lt;/typical_task_structure&gt;
+
+&lt;execution_order&gt;
+  &lt;subtask_1_tests&gt;
+    IF sub-task 1 is &quot;Write tests for [feature]&quot;:
+      - Write all tests for the parent feature
+      - Include unit tests, integration tests, edge cases
+      - Run tests to ensure they fail appropriately
+      - Mark sub-task 1 complete
+  &lt;/subtask_1_tests&gt;
+
+  &lt;middle_subtasks_implementation&gt;
+    FOR each implementation sub-task (2 through n-1):
+      - Implement the specific functionality
+      - Make relevant tests pass
+      - Update any adjacent/related tests if needed
+      - Refactor while keeping tests green
+      - Mark sub-task complete
+  &lt;/middle_subtasks_implementation&gt;
+
+  &lt;final_subtask_verification&gt;
+    IF final sub-task is &quot;Verify all tests pass&quot;:
+      - Run entire test suite
+      - Fix any remaining failures
+      - Ensure no regressions
+      - Mark final sub-task complete
+  &lt;/final_subtask_verification&gt;
+&lt;/execution_order&gt;
+
+&lt;test_management&gt;
+  &lt;new_tests&gt;
+    - Written in first sub-task
+    - Cover all aspects of parent feature
+    - Include edge cases and error handling
+  &lt;/new_tests&gt;
+  &lt;test_updates&gt;
+    - Made during implementation sub-tasks
+    - Update expectations for changed behavior
+    - Maintain backward compatibility
+  &lt;/test_updates&gt;
+&lt;/test_management&gt;
+
+&lt;instructions&gt;
+  ACTION: Execute sub-tasks in their defined order
+  RECOGNIZE: First sub-task typically writes all tests
+  IMPLEMENT: Middle sub-tasks build functionality
+  VERIFY: Final sub-task ensures all tests pass
+  UPDATE: Mark each sub-task complete as finished
+&lt;/instructions&gt;
+
+&lt;/step&gt;
+
+&lt;step number=&quot;6&quot; subagent=&quot;test-runner&quot; name=&quot;task_test_verification&quot;&gt;
+
+### Step 6: Task-Specific Test Verification
+
+Use the test-runner subagent to run and verify only the tests specific to this parent task (not the full test suite) to ensure the feature is working correctly.
+
+&lt;focused_test_execution&gt;
+  &lt;run_only&gt;
+    - All new tests written for this parent task
+    - All tests updated during this task
+    - Tests directly related to this feature
+  &lt;/run_only&gt;
+  &lt;skip&gt;
+    - Full test suite (done later in execute-tasks.md)
+    - Unrelated test files
+  &lt;/skip&gt;
+&lt;/focused_test_execution&gt;
+
+&lt;final_verification&gt;
+  IF any test failures:
+    - Debug and fix the specific issue
+    - Re-run only the failed tests
+  ELSE:
+    - Confirm all task tests passing
+    - Ready to proceed
+&lt;/final_verification&gt;
+
+&lt;instructions&gt;
+  ACTION: Use test-runner subagent
+  REQUEST: &quot;Run tests for [this parent task&apos;s test files]&quot;
+  WAIT: For test-runner analysis
+  PROCESS: Returned failure information
+  VERIFY: 100% pass rate for task-specific tests
+  CONFIRM: This feature&apos;s tests are complete
+&lt;/instructions&gt;
+
+&lt;/step&gt;
+
+&lt;step number=&quot;7&quot; name=&quot;task_status_updates&quot;&gt;
+
+### Step 7: Mark this task and sub-tasks complete
+
+IMPORTANT: In the tasks.md file, mark this task and its sub-tasks complete by updating each task checkbox to [x].
+
+&lt;update_format&gt;
+  &lt;completed&gt;- [x] Task description&lt;/completed&gt;
+  &lt;incomplete&gt;- [ ] Task description&lt;/incomplete&gt;
+  &lt;blocked&gt;
+    - [ ] Task description
+    ⚠️ Blocking issue: [DESCRIPTION]
+  &lt;/blocked&gt;
+&lt;/update_format&gt;
+
+&lt;blocking_criteria&gt;
+  &lt;attempts&gt;maximum 3 different approaches&lt;/attempts&gt;
+  &lt;action&gt;document blocking issue&lt;/action&gt;
+  &lt;emoji&gt;⚠️&lt;/emoji&gt;
+&lt;/blocking_criteria&gt;
+
+&lt;instructions&gt;
+  ACTION: Update tasks.md after each task completion
+  MARK: [x] for completed items immediately
+  DOCUMENT: Blocking issues with ⚠️ emoji
+  LIMIT: 3 attempts before marking as blocked
+&lt;/instructions&gt;
+
+&lt;/step&gt;
+
+&lt;/process_flow&gt;
+
+&lt;post_flight_check&gt;
+  EXECUTE: @.agent-os/instructions/meta/post-flight.md
+&lt;/post_flight_check&gt;</file><file path="instructions/core/execute-tasks.md">---
+description: Rules to initiate execution of a set of tasks using Agent OS
+globs:
+alwaysApply: false
+version: 1.0
+encoding: UTF-8
+---
+
+# Task Execution Rules
+
+## Overview
+
+Execute tasks for a given spec following three distinct phases:
+1. Pre-execution setup (Steps 1-3)
+2. Task execution loop (Step 4)
+3. Post-execution tasks (Step 5)
+
+**IMPORTANT**: All three phases MUST be completed. Do not stop after phase 2.
+
+&lt;pre_flight_check&gt;
+  EXECUTE: @.agent-os/instructions/meta/pre-flight.md
+&lt;/pre_flight_check&gt;
+
+&lt;process_flow&gt;
+
+## Phase 1: Pre-Execution Setup
+
+&lt;step number=&quot;1&quot; name=&quot;task_assignment&quot;&gt;
+
+### Step 1: Task Assignment
+
+Identify which tasks to execute from the spec (using spec_srd_reference file path and optional specific_tasks array), defaulting to the next uncompleted parent task if not specified.
+
+&lt;task_selection&gt;
+  &lt;explicit&gt;user specifies exact task(s)&lt;/explicit&gt;
+  &lt;implicit&gt;find next uncompleted task in tasks.md&lt;/implicit&gt;
+&lt;/task_selection&gt;
+
+&lt;instructions&gt;
+  ACTION: Identify task(s) to execute
+  DEFAULT: Select next uncompleted parent task if not specified
+  CONFIRM: Task selection with user
+&lt;/instructions&gt;
+
+&lt;/step&gt;
+
+&lt;step number=&quot;2&quot; subagent=&quot;context-fetcher&quot; name=&quot;context_analysis&quot;&gt;
+
+### Step 2: Context Analysis
+
+Use the context-fetcher subagent to gather minimal context for task understanding by always loading spec tasks.md, and conditionally loading @.agent-os/product/mission-lite.md, spec-lite.md, and sub-specs/technical-spec.md if not already in context.
+
+&lt;instructions&gt;
+  ACTION: Use context-fetcher subagent to:
+    - REQUEST: &quot;Get product pitch from mission-lite.md&quot;
+    - REQUEST: &quot;Get spec summary from spec-lite.md&quot;
+    - REQUEST: &quot;Get technical approach from technical-spec.md&quot;
+  PROCESS: Returned information
+&lt;/instructions&gt;
+
+
+&lt;context_gathering&gt;
+  &lt;essential_docs&gt;
+    - tasks.md for task breakdown
+  &lt;/essential_docs&gt;
+  &lt;conditional_docs&gt;
+    - mission-lite.md for product alignment
+    - spec-lite.md for feature summary
+    - technical-spec.md for implementation details
+  &lt;/conditional_docs&gt;
+&lt;/context_gathering&gt;
+
+&lt;/step&gt;
+
+&lt;step number=&quot;3&quot; subagent=&quot;git-workflow&quot; name=&quot;git_branch_management&quot;&gt;
+
+### Step 3: Git Branch Management
+
+Use the git-workflow subagent to manage git branches to ensure proper isolation by creating or switching to the appropriate branch for the spec.
+
+&lt;instructions&gt;
+  ACTION: Use git-workflow subagent
+  REQUEST: &quot;Check and manage branch for spec: [SPEC_FOLDER]
+            - Create branch if needed
+            - Switch to correct branch
+            - Handle any uncommitted changes&quot;
+  WAIT: For branch setup completion
+&lt;/instructions&gt;
+
+&lt;branch_naming&gt;
+  &lt;source&gt;spec folder name&lt;/source&gt;
+  &lt;format&gt;exclude date prefix&lt;/format&gt;
+  &lt;example&gt;
+    - folder: 2025-03-15-password-reset
+    - branch: password-reset
+  &lt;/example&gt;
+&lt;/branch_naming&gt;
+
+&lt;/step&gt;
+
+## Phase 2: Task Execution Loop
+
+&lt;step number=&quot;4&quot; name=&quot;task_execution_loop&quot;&gt;
+
+### Step 4: Task Execution Loop
+
+**IMPORTANT**: This is a loop. Execute ALL assigned tasks before proceeding to Phase 3.
+
+Execute all assigned parent tasks and their subtasks using @.agent-os/instructions/core/execute-task.md instructions, continuing until all tasks are complete.
+
+&lt;execution_flow&gt;
+  LOAD @.agent-os/instructions/core/execute-task.md ONCE
+
+  FOR each parent_task assigned in Step 1:
+    EXECUTE instructions from execute-task.md with:
+      - parent_task_number
+      - all associated subtasks
+    WAIT for task completion
+    UPDATE tasks.md status
+  END FOR
+
+  **IMPORTANT**: After loop completes, CONTINUE to Phase 3 (Step 5). Do not stop here.
+&lt;/execution_flow&gt;
+
+&lt;loop_logic&gt;
+  &lt;continue_conditions&gt;
+    - More unfinished parent tasks exist
+    - User has not requested stop
+  &lt;/continue_conditions&gt;
+  &lt;exit_conditions&gt;
+    - All assigned tasks marked complete
+    - User requests early termination
+    - Blocking issue prevents continuation
+  &lt;/exit_conditions&gt;
+&lt;/loop_logic&gt;
+
+&lt;task_status_check&gt;
+  AFTER each task execution:
+    CHECK tasks.md for remaining tasks
+    IF all assigned tasks complete:
+      PROCEED to next step
+    ELSE:
+      CONTINUE with next task
+&lt;/task_status_check&gt;
+
+&lt;instructions&gt;
+  ACTION: Load execute-task.md instructions once at start
+  REUSE: Same instructions for each parent task iteration
+  LOOP: Through all assigned parent tasks
+  UPDATE: Task status after each completion
+  VERIFY: All tasks complete before proceeding
+  HANDLE: Blocking issues appropriately
+  **IMPORTANT**: When all tasks complete, proceed to Step 5
+&lt;/instructions&gt;
+
+&lt;/step&gt;
+
+## Phase 3: Post-Execution Tasks
+
+&lt;step number=&quot;5&quot; name=&quot;post_execution_tasks&quot;&gt;
+
+### Step 5: Run the task completion steps
+
+**CRITICAL**: This step MUST be executed after all tasks are implemented. Do not end the process without completing this phase.
+
+After all tasks in tasks.md have been implemented, use @.agent-os/instructions/core/post-execution-tasks.md to run our series of steps we always run when finishing and delivering a new feature.
+
+&lt;instructions&gt;
+  LOAD: @.agent-os/instructions/core/post-execution-tasks.md once
+  ACTION: execute all steps in the post-execution-tasks.md process_flow.
+  **IMPORTANT**: This includes:
+    - Running full test suite
+    - Git workflow (commit, push, PR)
+    - Verifying task completion
+    - Updating roadmap (if applicable)
+    - Creating recap document
+    - Generating completion summary
+    - Playing notification sound
+&lt;/instructions&gt;
+
+&lt;/step&gt;
+
+&lt;/process_flow&gt;
+
+&lt;post_flight_check&gt;
+  EXECUTE: @.agent-os/instructions/meta/post-flight.md
+&lt;/post_flight_check&gt;</file><file path="instructions/core/plan-product.md">---
+description: Product Planning Rules for Agent OS
+globs:
+alwaysApply: false
+version: 4.0
+encoding: UTF-8
+---
+
+# Product Planning Rules
+
+## Overview
+
+Generate product docs for new projects: mission, tech-stack and roadmap files for AI agent consumption.
+
+&lt;pre_flight_check&gt;
+  EXECUTE: @.agent-os/instructions/meta/pre-flight.md
+&lt;/pre_flight_check&gt;
+
+&lt;process_flow&gt;
+
+&lt;step number=&quot;1&quot; subagent=&quot;context-fetcher&quot; name=&quot;gather_user_input&quot;&gt;
+
+### Step 1: Gather User Input
+
+Use the context-fetcher subagent to collect all required inputs from the user including main idea, key features (minimum 3), target users (minimum 1), and tech stack preferences with blocking validation before proceeding.
+
+&lt;data_sources&gt;
+  &lt;primary&gt;user_direct_input&lt;/primary&gt;
+  &lt;fallback_sequence&gt;
+    1. @.agent-os/standards/tech-stack.md
+    2. @.claude/CLAUDE.md
+    3. Cursor User Rules
+  &lt;/fallback_sequence&gt;
+&lt;/data_sources&gt;
+
+&lt;error_template&gt;
+  Please provide the following missing information:
+  1. Main idea for the product
+  2. List of key features (minimum 3)
+  3. Target users and use cases (minimum 1)
+  4. Tech stack preferences
+  5. Has the new application been initialized yet and we&apos;re inside the project folder? (yes/no)
+&lt;/error_template&gt;
+
+&lt;/step&gt;
+
+&lt;step number=&quot;2&quot; subagent=&quot;file-creator&quot; name=&quot;create_documentation_structure&quot;&gt;
+
+### Step 2: Create Documentation Structure
+
+Use the file-creator subagent to create the following file_structure with validation for write permissions and protection against overwriting existing files:
+
+&lt;file_structure&gt;
+  .agent-os/
+  └── product/
+      ├── mission.md          # Product vision and purpose
+      ├── mission-lite.md     # Condensed mission for AI context
+      ├── tech-stack.md       # Technical architecture
+      └── roadmap.md          # Development phases
+&lt;/file_structure&gt;
+
+&lt;/step&gt;
+
+&lt;step number=&quot;3&quot; subagent=&quot;file-creator&quot; name=&quot;create_mission_md&quot;&gt;
+
+### Step 3: Create mission.md
+
+Use the file-creator subagent to create the file: .agent-os/product/mission.md and use the following template:
+
+&lt;file_template&gt;
+  &lt;header&gt;
+    # Product Mission
+  &lt;/header&gt;
+  &lt;required_sections&gt;
+    - Pitch
+    - Users
+    - The Problem
+    - Differentiators
+    - Key Features
+  &lt;/required_sections&gt;
+&lt;/file_template&gt;
+
+&lt;section name=&quot;pitch&quot;&gt;
+  &lt;template&gt;
+    ## Pitch
+
+    [PRODUCT_NAME] is a [PRODUCT_TYPE] that helps [TARGET_USERS] [SOLVE_PROBLEM] by providing [KEY_VALUE_PROPOSITION].
+  &lt;/template&gt;
+  &lt;constraints&gt;
+    - length: 1-2 sentences
+    - style: elevator pitch
+  &lt;/constraints&gt;
+&lt;/section&gt;
+
+&lt;section name=&quot;users&quot;&gt;
+  &lt;template&gt;
+    ## Users
+
+    ### Primary Customers
+
+    - [CUSTOMER_SEGMENT_1]: [DESCRIPTION]
+    - [CUSTOMER_SEGMENT_2]: [DESCRIPTION]
+
+    ### User Personas
+
+    **[USER_TYPE]** ([AGE_RANGE])
+    - **Role:** [JOB_TITLE]
+    - **Context:** [BUSINESS_CONTEXT]
+    - **Pain Points:** [PAIN_POINT_1], [PAIN_POINT_2]
+    - **Goals:** [GOAL_1], [GOAL_2]
+  &lt;/template&gt;
+  &lt;schema&gt;
+    - name: string
+    - age_range: &quot;XX-XX years old&quot;
+    - role: string
+    - context: string
+    - pain_points: array[string]
+    - goals: array[string]
+  &lt;/schema&gt;
+&lt;/section&gt;
+
+&lt;section name=&quot;problem&quot;&gt;
+  &lt;template&gt;
+    ## The Problem
+
+    ### [PROBLEM_TITLE]
+
+    [PROBLEM_DESCRIPTION]. [QUANTIFIABLE_IMPACT].
+
+    **Our Solution:** [SOLUTION_DESCRIPTION]
+  &lt;/template&gt;
+  &lt;constraints&gt;
+    - problems: 2-4
+    - description: 1-3 sentences
+    - impact: include metrics
+    - solution: 1 sentence
+  &lt;/constraints&gt;
+&lt;/section&gt;
+
+&lt;section name=&quot;differentiators&quot;&gt;
+  &lt;template&gt;
+    ## Differentiators
+
+    ### [DIFFERENTIATOR_TITLE]
+
+    Unlike [COMPETITOR_OR_ALTERNATIVE], we provide [SPECIFIC_ADVANTAGE]. This results in [MEASURABLE_BENEFIT].
+  &lt;/template&gt;
+  &lt;constraints&gt;
+    - count: 2-3
+    - focus: competitive advantages
+    - evidence: required
+  &lt;/constraints&gt;
+&lt;/section&gt;
+
+&lt;section name=&quot;features&quot;&gt;
+  &lt;template&gt;
+    ## Key Features
+
+    ### Core Features
+
+    - **[FEATURE_NAME]:** [USER_BENEFIT_DESCRIPTION]
+
+    ### Collaboration Features
+
+    - **[FEATURE_NAME]:** [USER_BENEFIT_DESCRIPTION]
+  &lt;/template&gt;
+  &lt;constraints&gt;
+    - total: 8-10 features
+    - grouping: by category
+    - description: user-benefit focused
+  &lt;/constraints&gt;
+&lt;/section&gt;
+
+&lt;/step&gt;
+
+&lt;step number=&quot;4&quot; subagent=&quot;file-creator&quot; name=&quot;create_tech_stack_md&quot;&gt;
+
+### Step 4: Create tech-stack.md
+
+Use the file-creator subagent to create the file: .agent-os/product/tech-stack.md and use the following template:
+
+&lt;file_template&gt;
+  &lt;header&gt;
+    # Technical Stack
+  &lt;/header&gt;
+&lt;/file_template&gt;
+
+&lt;required_items&gt;
+  - application_framework: string + version
+  - database_system: string
+  - javascript_framework: string
+  - import_strategy: [&quot;importmaps&quot;, &quot;node&quot;]
+  - css_framework: string + version
+  - ui_component_library: string
+  - fonts_provider: string
+  - icon_library: string
+  - application_hosting: string
+  - database_hosting: string
+  - asset_hosting: string
+  - deployment_solution: string
+  - code_repository_url: string
+&lt;/required_items&gt;
+
+&lt;data_resolution&gt;
+  IF has_context_fetcher:
+    FOR missing tech stack items:
+      USE: @agent:context-fetcher
+      REQUEST: &quot;Find [ITEM_NAME] from tech-stack.md&quot;
+      PROCESS: Use found defaults
+  ELSE:
+    PROCEED: To manual resolution below
+
+  &lt;manual_resolution&gt;
+    &lt;for_each item=&quot;required_items&quot;&gt;
+      &lt;if_not_in&gt;user_input&lt;/if_not_in&gt;
+      &lt;then_check&gt;
+        1. @.agent-os/standards/tech-stack.md
+        2. @.claude/CLAUDE.md
+        3. Cursor User Rules
+      &lt;/then_check&gt;
+      &lt;else&gt;add_to_missing_list&lt;/else&gt;
+    &lt;/for_each&gt;
+  &lt;/manual_resolution&gt;
+&lt;/data_resolution&gt;
+
+&lt;missing_items_template&gt;
+  Please provide the following technical stack details:
+  [NUMBERED_LIST_OF_MISSING_ITEMS]
+
+  You can respond with the technology choice or &quot;n/a&quot; for each item.
+&lt;/missing_items_template&gt;
+
+
+&lt;/step&gt;
+
+&lt;step number=&quot;5&quot; subagent=&quot;file-creator&quot; name=&quot;create_mission_lite_md&quot;&gt;
+
+### Step 5: Create mission-lite.md
+
+Use the file-creator subagent to create the file: .agent-os/product/mission-lite.md for the purpose of establishing a condensed mission for efficient AI context usage.
+
+Use the following template:
+
+&lt;file_template&gt;
+  &lt;header&gt;
+    # Product Mission (Lite)
+  &lt;/header&gt;
+&lt;/file_template&gt;
+
+&lt;content_structure&gt;
+  &lt;elevator_pitch&gt;
+    - source: Step 3 mission.md pitch section
+    - format: single sentence
+  &lt;/elevator_pitch&gt;
+  &lt;value_summary&gt;
+    - length: 1-3 sentences
+    - includes: value proposition, target users, key differentiator
+    - excludes: secondary users, secondary differentiators
+  &lt;/value_summary&gt;
+&lt;/content_structure&gt;
+
+&lt;content_template&gt;
+  [ELEVATOR_PITCH_FROM_MISSION_MD]
+
+  [1-3_SENTENCES_SUMMARIZING_VALUE_TARGET_USERS_AND_PRIMARY_DIFFERENTIATOR]
+&lt;/content_template&gt;
+
+&lt;example&gt;
+  TaskFlow is a project management tool that helps remote teams coordinate work efficiently by providing real-time collaboration and automated workflow tracking.
+
+  TaskFlow serves distributed software teams who need seamless task coordination across time zones. Unlike traditional project management tools, TaskFlow automatically syncs with development workflows and provides intelligent task prioritization based on team capacity and dependencies.
+&lt;/example&gt;
+
+&lt;/step&gt;
+
+&lt;step number=&quot;6&quot; subagent=&quot;file-creator&quot; name=&quot;create_roadmap_md&quot;&gt;
+
+### Step 6: Create roadmap.md
+
+Use the file-creator subagent to create the following file: .agent-os/product/roadmap.md using the following template:
+
+&lt;file_template&gt;
+  &lt;header&gt;
+    # Product Roadmap
+  &lt;/header&gt;
+&lt;/file_template&gt;
+
+&lt;phase_structure&gt;
+  &lt;phase_count&gt;1-3&lt;/phase_count&gt;
+  &lt;features_per_phase&gt;3-7&lt;/features_per_phase&gt;
+  &lt;phase_template&gt;
+    ## Phase [NUMBER]: [NAME]
+
+    **Goal:** [PHASE_GOAL]
+    **Success Criteria:** [MEASURABLE_CRITERIA]
+
+    ### Features
+
+    - [ ] [FEATURE] - [DESCRIPTION] `[EFFORT]`
+
+    ### Dependencies
+
+    - [DEPENDENCY]
+  &lt;/phase_template&gt;
+&lt;/phase_structure&gt;
+
+&lt;phase_guidelines&gt;
+  - Phase 1: Core MVP functionality
+  - Phase 2: Key differentiators
+  - Phase 3: Scale and polish
+  - Phase 4: Advanced features
+  - Phase 5: Enterprise features
+&lt;/phase_guidelines&gt;
+
+&lt;effort_scale&gt;
+  - XS: 1 day
+  - S: 2-3 days
+  - M: 1 week
+  - L: 2 weeks
+  - XL: 3+ weeks
+&lt;/effort_scale&gt;
+
+&lt;/step&gt;
+
+&lt;/process_flow&gt;
+
+&lt;post_flight_check&gt;
+  EXECUTE: @.agent-os/instructions/meta/post-flight.md
+&lt;/post_flight_check&gt;</file><file path="instructions/core/post-execution-tasks.md">---
+description: Rules to finish off and deliver to user set of tasks that have been completed using Agent OS
+globs:
+alwaysApply: false
+version: 1.0
+encoding: UTF-8
+---
+
+# Task Execution Rules
+
+## Overview
+
+Follow these steps to mark your progress updates, create a recap, and deliver the final report to the user.
+
+&lt;pre_flight_check&gt;
+  EXECUTE: @.agent-os/instructions/meta/pre-flight.md
+&lt;/pre_flight_check&gt;
+
+&lt;process_flow&gt;
+
+&lt;step number=&quot;1&quot; subagent=&quot;test-runner&quot; name=&quot;test_suite_verification&quot;&gt;
+
+### Step 1: Run All Tests
+
+Use the test-runner subagent to run the ALL tests in the application&apos;s test suite to ensure no regressions and fix any failures until all tests pass.
+
+&lt;instructions&gt;
+  ACTION: Use test-runner subagent
+  REQUEST: &quot;Run the full test suite&quot;
+  WAIT: For test-runner analysis
+  PROCESS: Fix any reported failures
+  REPEAT: Until all tests pass
+&lt;/instructions&gt;
+
+&lt;test_execution&gt;
+  &lt;order&gt;
+    1. Run entire test suite
+    2. Fix any failures
+  &lt;/order&gt;
+  &lt;requirement&gt;100% pass rate&lt;/requirement&gt;
+&lt;/test_execution&gt;
+
+&lt;failure_handling&gt;
+  &lt;action&gt;troubleshoot and fix&lt;/action&gt;
+  &lt;priority&gt;before proceeding&lt;/priority&gt;
+&lt;/failure_handling&gt;
+
+&lt;/step&gt;
+
+&lt;step number=&quot;2&quot; subagent=&quot;git-workflow&quot; name=&quot;git_workflow&quot;&gt;
+
+### Step 2: Git Workflow
+
+Use the git-workflow subagent to create git commit, push to GitHub, and create pull request for the implemented features.
+
+&lt;instructions&gt;
+  ACTION: Use git-workflow subagent
+  REQUEST: &quot;Complete git workflow for [SPEC_NAME] feature:
+            - Spec: [SPEC_FOLDER_PATH]
+            - Changes: All modified files
+            - Target: main branch
+            - Description: [SUMMARY_OF_IMPLEMENTED_FEATURES]&quot;
+  WAIT: For workflow completion
+  PROCESS: Save PR URL for summary
+&lt;/instructions&gt;
+
+&lt;commit_process&gt;
+  &lt;commit&gt;
+    &lt;message&gt;descriptive summary of changes&lt;/message&gt;
+    &lt;format&gt;conventional commits if applicable&lt;/format&gt;
+  &lt;/commit&gt;
+  &lt;push&gt;
+    &lt;target&gt;spec branch&lt;/target&gt;
+    &lt;remote&gt;origin&lt;/remote&gt;
+  &lt;/push&gt;
+  &lt;pull_request&gt;
+    &lt;title&gt;descriptive PR title&lt;/title&gt;
+    &lt;description&gt;functionality recap&lt;/description&gt;
+  &lt;/pull_request&gt;
+&lt;/commit_process&gt;
+
+&lt;/step&gt;
+
+&lt;step number=&quot;3&quot; subagent=&quot;project-manager&quot; name=&quot;tasks_list_check&quot;&gt;
+
+### Step 3: Tasks Completion Verification
+
+Use the project-manager subagent to read the current spec&apos;s tasks.md file and verify that all tasks have been properly marked as complete with [x] or documented with blockers.
+
+&lt;instructions&gt;
+  ACTION: Use project-manager subagent
+  REQUEST: &quot;Verify that all tasks have been marked with their outcome:
+            - Read [SPEC_FOLDER_PATH]/tasks.md
+            - Check all tasks are marked complete with [x] or (in rare cases) a documented blocking issue.&quot;
+  WAIT: For task verification analysis
+  PROCESS: Update task status as needed
+&lt;/instructions&gt;
+
+&lt;/step&gt;
+
+&lt;step number=&quot;4&quot; subagent=&quot;project-manager&quot; name=&quot;roadmap_progress_check&quot;&gt;
+
+### Step 4: Roadmap Progress Update (conditional)
+
+Use the project-manager subagent to read @.agent-os/product/roadmap.md and mark roadmap items as complete with [x] ONLY IF the executed tasks have completed any roadmap item(s) and the spec completes that item.
+
+&lt;conditional_execution&gt;
+  &lt;preliminary_check&gt;
+    EVALUATE: Did executed tasks complete any roadmap item(s)?
+    IF NO:
+      SKIP this entire step
+      PROCEED to step 5
+    IF YES:
+      CONTINUE with roadmap check
+  &lt;/preliminary_check&gt;
+&lt;/conditional_execution&gt;
+
+&lt;roadmap_criteria&gt;
+  &lt;update_when&gt;
+    - spec fully implements roadmap feature
+    - all related tasks completed
+    - tests passing
+  &lt;/update_when&gt;
+&lt;/roadmap_criteria&gt;
+
+&lt;instructions&gt;
+  ACTION: First evaluate if roadmap check is needed
+      SKIP: If tasks clearly don&apos;t complete roadmap items
+  EVALUATE: If current spec completes roadmap goals
+  UPDATE: Mark roadmap items complete with [x] if applicable
+&lt;/instructions&gt;
+
+&lt;/step&gt;
+
+&lt;step number=&quot;5&quot; subagent=&quot;project-manager&quot; name=&quot;document_recap&quot;&gt;
+
+### Step 5: Create Recap Document
+
+Use the project-manager subagent to create a recap document in .agent-os/recaps/ folder that summarizes what was built for this spec.
+
+&lt;instructions&gt;
+  ACTION: Use project-manager subagent
+  REQUEST: &quot;Create recap document for current spec:
+            - Create file: .agent-os/recaps/[SPEC_FOLDER_NAME].md
+            - Use template format with completed features summary
+            - Include context from spec-lite.md
+            - Document: [SPEC_FOLDER_PATH]&quot;
+  WAIT: For recap document creation
+  PROCESS: Verify file is created with proper content
+&lt;/instructions&gt;
+
+&lt;recap_template&gt;
+  # [yyyy-mm-dd] Recap: Feature Name
+
+  This recaps what was built for the spec documented at .agent-os/specs/[spec-folder-name]/spec.md.
+
+  ## Recap
+
+  [1 paragraph summary plus short bullet list of what was completed]
+
+  ## Context
+
+  [Copy the summary found in spec-lite.md to provide concise context of what the initial goal for this spec was]
+&lt;/recap_template&gt;
+
+&lt;file_creation&gt;
+  &lt;location&gt;.agent-os/recaps/&lt;/location&gt;
+  &lt;naming&gt;[SPEC_FOLDER_NAME].md&lt;/naming&gt;
+  &lt;format&gt;markdown with yaml frontmatter if needed&lt;/format&gt;
+&lt;/file_creation&gt;
+
+&lt;content_requirements&gt;
+  &lt;summary&gt;1 paragraph plus bullet points&lt;/summary&gt;
+  &lt;context&gt;from spec-lite.md summary&lt;/context&gt;
+  &lt;reference&gt;link to original spec&lt;/reference&gt;
+&lt;/content_requirements&gt;
+
+&lt;/step&gt;
+
+&lt;step number=&quot;6&quot; subagent=&quot;project-manager&quot; name=&quot;completion_summary&quot;&gt;
+
+### Step 6: Completion Summary
+
+Use the project-manager subagent to create a structured summary message with emojis showing what was done, any issues, testing instructions, and PR link.
+
+&lt;summary_template&gt;
+  ## ✅ What&apos;s been done
+
+  1. **[FEATURE_1]** - [ONE_SENTENCE_DESCRIPTION]
+  2. **[FEATURE_2]** - [ONE_SENTENCE_DESCRIPTION]
+
+  ## ⚠️ Issues encountered
+
+  [ONLY_IF_APPLICABLE]
+  - **[ISSUE_1]** - [DESCRIPTION_AND_REASON]
+
+  ## 👀 Ready to test in browser
+
+  [ONLY_IF_APPLICABLE]
+  1. [STEP_1_TO_TEST]
+  2. [STEP_2_TO_TEST]
+
+  ## 📦 Pull Request
+
+  View PR: [GITHUB_PR_URL]
+&lt;/summary_template&gt;
+
+&lt;summary_sections&gt;
+  &lt;required&gt;
+    - functionality recap
+    - pull request info
+  &lt;/required&gt;
+  &lt;conditional&gt;
+    - issues encountered (if any)
+    - testing instructions (if testable in browser)
+  &lt;/conditional&gt;
+&lt;/summary_sections&gt;
+
+&lt;instructions&gt;
+  ACTION: Create comprehensive summary
+  INCLUDE: All required sections
+  ADD: Conditional sections if applicable
+  FORMAT: Use emoji headers for scannability
+&lt;/instructions&gt;
+
+&lt;/step&gt;
+
+&lt;step number=&quot;7&quot; subagent=&quot;project-manager&quot; name=&quot;completion_notification&quot;&gt;
+
+### Step 7: Task Completion Notification
+
+Use the project-manager subagent to play a system sound to alert the user that tasks are complete.
+
+&lt;notification_command&gt;
+  afplay /System/Library/Sounds/Glass.aiff
+&lt;/notification_command&gt;
+
+&lt;instructions&gt;
+  ACTION: Play completion sound
+  PURPOSE: Alert user that task is complete
+&lt;/instructions&gt;
+
+&lt;/step&gt;
+
+&lt;/process_flow&gt;
+
+&lt;post_flight_check&gt;
+  EXECUTE: @.agent-os/instructions/meta/post-flight.md
+&lt;/post_flight_check&gt;</file><file path="instructions/meta/post-flight.md">---
+description: Common Post-Flight Steps for Agent OS Instructions
+globs:
+alwaysApply: false
+version: 1.0
+encoding: UTF-8
+---
+
+# Post-Flight Rules
+
+After completing all steps in a process_flow, always review your work and verify:
+
+- Every numbered step has read, executed, and delivered according to its instructions.
+
+- All steps that specified a subagent should be used, did in fact delegate those tasks to the specified subagent.  IF they did not, see why the subagent was not used and report your findings to the user.
+
+- IF you notice a step wasn&apos;t executed according to its instructions, report your findings and explain which part of the instructions were misread or skipped and why.</file><file path="instructions/meta/pre-flight.md">---
+description: Common Pre-Flight Steps for Agent OS Instructions
+globs:
+alwaysApply: false
+version: 1.0
+encoding: UTF-8
+---
+
+# Pre-Flight Rules
+
+- IMPORTANT: For any step that specifies a subagent in the subagent=&quot;&quot; XML attribute you MUST use the specified subagent to perform the instructions for that step.
+
+- Process XML blocks sequentially
+
+- Read and execute every numbered step in the process_flow EXACTLY as the instructions specify.
+
+- If you need clarification on any details of your current task, stop and ask the user specific numbered questions and then continue once you have all of the information you need.
+
+- Use exact templates as provided</file><file path="setup/base.sh">#!/bin/bash
+
+# Agent OS Base Installation Script
+# This script installs Agent OS to the current directory
+
+set -e  # Exit on error
+
+# Initialize flags
+OVERWRITE_INSTRUCTIONS=false
+OVERWRITE_STANDARDS=false
+OVERWRITE_CONFIG=false
+CLAUDE_CODE=false
+CURSOR=false
+
+# Base URL for raw GitHub content
+BASE_URL=&quot;https://raw.githubusercontent.com/buildermethods/agent-os/main&quot;
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --overwrite-instructions)
+            OVERWRITE_INSTRUCTIONS=true
+            shift
+            ;;
+        --overwrite-standards)
+            OVERWRITE_STANDARDS=true
+            shift
+            ;;
+        --overwrite-config)
+            OVERWRITE_CONFIG=true
+            shift
+            ;;
+        --claude-code|--claude|--claude_code)
+            CLAUDE_CODE=true
+            shift
+            ;;
+        --cursor|--cursor-cli)
+            CURSOR=true
+            shift
+            ;;
+        -h|--help)
+            echo &quot;Usage: $0 [OPTIONS]&quot;
+            echo &quot;&quot;
+            echo &quot;Options:&quot;
+            echo &quot;  --overwrite-instructions    Overwrite existing instruction files&quot;
+            echo &quot;  --overwrite-standards       Overwrite existing standards files&quot;
+            echo &quot;  --overwrite-config          Overwrite existing config.yml&quot;
+            echo &quot;  --claude-code               Add Claude Code support&quot;
+            echo &quot;  --cursor                    Add Cursor support&quot;
+            echo &quot;  -h, --help                  Show this help message&quot;
+            echo &quot;&quot;
+            exit 0
+            ;;
+        *)
+            echo &quot;Unknown option: $1&quot;
+            echo &quot;Use --help for usage information&quot;
+            exit 1
+            ;;
+    esac
+done
+
+echo &quot;&quot;
+echo &quot;🚀 Agent OS Base Installation&quot;
+echo &quot;=============================&quot;
+echo &quot;&quot;
+
+# Set installation directory to current directory
+CURRENT_DIR=$(pwd)
+INSTALL_DIR=&quot;$CURRENT_DIR/.agent-os&quot;
+
+echo &quot;📍 The Agent OS base installation will be installed in the current directory ($CURRENT_DIR)&quot;
+echo &quot;&quot;
+
+echo &quot;📁 Creating base directories...&quot;
+echo &quot;&quot;
+mkdir -p &quot;$INSTALL_DIR&quot;
+mkdir -p &quot;$INSTALL_DIR/setup&quot;
+
+# Download functions.sh to its permanent location and source it
+echo &quot;📥 Downloading setup functions...&quot;
+curl -sSL &quot;${BASE_URL}/setup/functions.sh&quot; -o &quot;$INSTALL_DIR/setup/functions.sh&quot;
+source &quot;$INSTALL_DIR/setup/functions.sh&quot;
+
+echo &quot;&quot;
+echo &quot;📦 Installing the latest version of Agent OS from the Agent OS GitHub repository...&quot;
+
+# Install /instructions, /standards, and /commands folders and files from GitHub
+install_from_github &quot;$INSTALL_DIR&quot; &quot;$OVERWRITE_INSTRUCTIONS&quot; &quot;$OVERWRITE_STANDARDS&quot;
+
+# Download config.yml
+echo &quot;&quot;
+echo &quot;📥 Downloading configuration...&quot;
+download_file &quot;${BASE_URL}/config.yml&quot; \
+    &quot;$INSTALL_DIR/config.yml&quot; \
+    &quot;$OVERWRITE_CONFIG&quot; \
+    &quot;config.yml&quot;
+
+# Download setup/project.sh
+echo &quot;&quot;
+echo &quot;📥 Downloading project setup script...&quot;
+download_file &quot;${BASE_URL}/setup/project.sh&quot; \
+    &quot;$INSTALL_DIR/setup/project.sh&quot; \
+    &quot;true&quot; \
+    &quot;setup/project.sh&quot;
+chmod +x &quot;$INSTALL_DIR/setup/project.sh&quot;
+
+# Handle Claude Code installation
+if [ &quot;$CLAUDE_CODE&quot; = true ]; then
+    echo &quot;&quot;
+    echo &quot;📥 Downloading Claude Code agent templates...&quot;
+    mkdir -p &quot;$INSTALL_DIR/claude-code/agents&quot;
+
+    # Download agents to base installation for project use
+    echo &quot;  📂 Agent templates:&quot;
+    for agent in context-fetcher date-checker file-creator git-workflow project-manager test-runner; do
+        download_file &quot;${BASE_URL}/claude-code/agents/${agent}.md&quot; \
+            &quot;$INSTALL_DIR/claude-code/agents/${agent}.md&quot; \
+            &quot;false&quot; \
+            &quot;claude-code/agents/${agent}.md&quot;
+    done
+
+    # Update config to enable claude_code
+    if [ -f &quot;$INSTALL_DIR/config.yml&quot; ]; then
+        sed -i.bak &apos;/claude_code:/,/enabled:/ s/enabled: false/enabled: true/&apos; &quot;$INSTALL_DIR/config.yml&quot; &amp;&amp; rm &quot;$INSTALL_DIR/config.yml.bak&quot;
+    fi
+fi
+
+# Handle Cursor installation
+if [ &quot;$CURSOR&quot; = true ]; then
+    echo &quot;&quot;
+    echo &quot;📥 Enabling Cursor support...&quot;
+
+    # Only update config to enable cursor
+    if [ -f &quot;$INSTALL_DIR/config.yml&quot; ]; then
+        sed -i.bak &apos;/cursor:/,/enabled:/ s/enabled: false/enabled: true/&apos; &quot;$INSTALL_DIR/config.yml&quot; &amp;&amp; rm &quot;$INSTALL_DIR/config.yml.bak&quot;
+        echo &quot;  ✓ Cursor enabled in configuration&quot;
+    fi
+fi
+
+# Success message
+echo &quot;&quot;
+echo &quot;✅ Agent OS base installation has been completed.&quot;
+echo &quot;&quot;
+
+# Dynamic project installation command
+PROJECT_SCRIPT=&quot;$INSTALL_DIR/setup/project.sh&quot;
+echo &quot;--------------------------------&quot;
+echo &quot;&quot;
+echo &quot;To install Agent OS in a project, run:&quot;
+echo &quot;&quot;
+echo &quot;   cd &lt;project-directory&gt;&quot;
+echo &quot;   $PROJECT_SCRIPT&quot;
+echo &quot;&quot;
+echo &quot;--------------------------------&quot;
+echo &quot;&quot;
+echo &quot;📍 Base installation files installed to:&quot;
+echo &quot;   $INSTALL_DIR/instructions/      - Agent OS instructions&quot;
+echo &quot;   $INSTALL_DIR/standards/         - Development standards&quot;
+echo &quot;   $INSTALL_DIR/commands/          - Command templates&quot;
+echo &quot;   $INSTALL_DIR/config.yml         - Configuration&quot;
+echo &quot;   $INSTALL_DIR/setup/project.sh   - Project installation script&quot;
+
+if [ &quot;$CLAUDE_CODE&quot; = true ]; then
+    echo &quot;   $INSTALL_DIR/claude-code/agents/ - Claude Code agent templates&quot;
+fi
+
+echo &quot;&quot;
+echo &quot;--------------------------------&quot;
+echo &quot;&quot;
+echo &quot;Next steps:&quot;
+echo &quot;&quot;
+echo &quot;1. Customize your standards in $INSTALL_DIR/standards/&quot;
+echo &quot;&quot;
+echo &quot;2. Configure project types in $INSTALL_DIR/config.yml&quot;
+echo &quot;&quot;
+echo &quot;3. Navigate to a project directory and run: $PROJECT_SCRIPT&quot;
+echo &quot;&quot;
+echo &quot;--------------------------------&quot;
+echo &quot;&quot;
+echo &quot;Refer to the official Agent OS docs at:&quot;
+echo &quot;https://buildermethods.com/agent-os&quot;
+echo &quot;&quot;
+echo &quot;Keep building! 🚀&quot;
+echo &quot;&quot;
+echo</file><file path="setup/functions.sh">#!/bin/bash
+
+# Agent OS Shared Functions
+# Used by both base.sh and project.sh
+
+# Base URL for raw GitHub content
+BASE_URL=&quot;https://raw.githubusercontent.com/buildermethods/agent-os/main&quot;
+
+# Function to copy files from source to destination
+copy_file() {
+    local source=&quot;$1&quot;
+    local dest=&quot;$2&quot;
+    local overwrite=&quot;$3&quot;
+    local desc=&quot;$4&quot;
+
+    if [ -f &quot;$dest&quot; ] &amp;&amp; [ &quot;$overwrite&quot; = false ]; then
+        echo &quot;  ⚠️  $desc already exists - skipping&quot;
+        return 0
+    else
+        if [ -f &quot;$source&quot; ]; then
+            cp &quot;$source&quot; &quot;$dest&quot;
+            if [ -f &quot;$dest&quot; ] &amp;&amp; [ &quot;$overwrite&quot; = true ]; then
+                echo &quot;  ✓ $desc (overwritten)&quot;
+            else
+                echo &quot;  ✓ $desc&quot;
+            fi
+            return 0
+        else
+            return 1
+        fi
+    fi
+}
+
+# Function to download file from GitHub
+download_file() {
+    local url=&quot;$1&quot;
+    local dest=&quot;$2&quot;
+    local overwrite=&quot;$3&quot;
+    local desc=&quot;$4&quot;
+
+    if [ -f &quot;$dest&quot; ] &amp;&amp; [ &quot;$overwrite&quot; = false ]; then
+        echo &quot;  ⚠️  $desc already exists - skipping&quot;
+        return 0
+    else
+        curl -s -o &quot;$dest&quot; &quot;$url&quot;
+        if [ -f &quot;$dest&quot; ] &amp;&amp; [ &quot;$overwrite&quot; = true ]; then
+            echo &quot;  ✓ $desc (overwritten)&quot;
+        else
+            echo &quot;  ✓ $desc&quot;
+        fi
+        return 0
+    fi
+}
+
+# Function to copy directory recursively
+copy_directory() {
+    local source=&quot;$1&quot;
+    local dest=&quot;$2&quot;
+    local overwrite=&quot;$3&quot;
+
+    if [ ! -d &quot;$source&quot; ]; then
+        return 1
+    fi
+
+    mkdir -p &quot;$dest&quot;
+
+    # Copy all files and subdirectories
+    find &quot;$source&quot; -type f | while read -r file; do
+        relative_path=&quot;${file#$source/}&quot;
+        dest_file=&quot;$dest/$relative_path&quot;
+        dest_dir=$(dirname &quot;$dest_file&quot;)
+        mkdir -p &quot;$dest_dir&quot;
+
+        if [ -f &quot;$dest_file&quot; ] &amp;&amp; [ &quot;$overwrite&quot; = false ]; then
+            echo &quot;  ⚠️  $relative_path already exists - skipping&quot;
+        else
+            cp &quot;$file&quot; &quot;$dest_file&quot;
+            if [ &quot;$overwrite&quot; = true ] &amp;&amp; [ -f &quot;$dest_file&quot; ]; then
+                echo &quot;  ✓ $relative_path (overwritten)&quot;
+            else
+                echo &quot;  ✓ $relative_path&quot;
+            fi
+        fi
+    done
+}
+
+# Function to convert command file to Cursor .mdc format
+convert_to_cursor_rule() {
+    local source=&quot;$1&quot;
+    local dest=&quot;$2&quot;
+
+    if [ -f &quot;$dest&quot; ]; then
+        echo &quot;  ⚠️  $(basename $dest) already exists - skipping&quot;
+    else
+        # Create the front-matter and append original content
+        cat &gt; &quot;$dest&quot; &lt;&lt; EOF
+---
+alwaysApply: false
+---
+
+EOF
+        cat &quot;$source&quot; &gt;&gt; &quot;$dest&quot;
+        echo &quot;  ✓ $(basename $dest)&quot;
+    fi
+}
+
+# Function to install from GitHub
+install_from_github() {
+    local target_dir=&quot;$1&quot;
+    local overwrite_inst=&quot;$2&quot;
+    local overwrite_std=&quot;$3&quot;
+    local include_commands=&quot;${4:-true}&quot;  # Default to true for base installations
+
+    # Create directories
+    mkdir -p &quot;$target_dir/standards&quot;
+    mkdir -p &quot;$target_dir/standards/code-style&quot;
+    mkdir -p &quot;$target_dir/instructions&quot;
+    mkdir -p &quot;$target_dir/instructions/core&quot;
+    mkdir -p &quot;$target_dir/instructions/meta&quot;
+
+    # Download instructions
+    echo &quot;&quot;
+    echo &quot;📥 Downloading instruction files to $target_dir/instructions/&quot;
+
+    # Core instructions
+    echo &quot;  📂 Core instructions:&quot;
+    for file in plan-product post-execution-tasks create-spec create-tasks execute-tasks execute-task analyze-product; do
+        download_file &quot;${BASE_URL}/instructions/core/${file}.md&quot; \
+            &quot;$target_dir/instructions/core/${file}.md&quot; \
+            &quot;$overwrite_inst&quot; \
+            &quot;instructions/core/${file}.md&quot;
+    done
+
+    # Meta instructions
+    echo &quot;&quot;
+    echo &quot;  📂 Meta instructions:&quot;
+    for file in pre-flight post-flight; do
+        download_file &quot;${BASE_URL}/instructions/meta/${file}.md&quot; \
+            &quot;$target_dir/instructions/meta/${file}.md&quot; \
+            &quot;$overwrite_inst&quot; \
+            &quot;instructions/meta/${file}.md&quot;
+    done
+
+    # Download standards
+    echo &quot;&quot;
+    echo &quot;📥 Downloading standards files to $target_dir/standards/&quot;
+
+    download_file &quot;${BASE_URL}/standards/tech-stack.md&quot; \
+        &quot;$target_dir/standards/tech-stack.md&quot; \
+        &quot;$overwrite_std&quot; \
+        &quot;standards/tech-stack.md&quot;
+
+    download_file &quot;${BASE_URL}/standards/code-style.md&quot; \
+        &quot;$target_dir/standards/code-style.md&quot; \
+        &quot;$overwrite_std&quot; \
+        &quot;standards/code-style.md&quot;
+
+    download_file &quot;${BASE_URL}/standards/best-practices.md&quot; \
+        &quot;$target_dir/standards/best-practices.md&quot; \
+        &quot;$overwrite_std&quot; \
+        &quot;standards/best-practices.md&quot;
+
+    # Download code-style subdirectory
+    echo &quot;&quot;
+    echo &quot;📥 Downloading code style files to $target_dir/standards/code-style/&quot;
+
+    for file in css-style html-style javascript-style; do
+        download_file &quot;${BASE_URL}/standards/code-style/${file}.md&quot; \
+            &quot;$target_dir/standards/code-style/${file}.md&quot; \
+            &quot;$overwrite_std&quot; \
+            &quot;standards/code-style/${file}.md&quot;
+    done
+
+    # Download commands (only if requested)
+    if [ &quot;$include_commands&quot; = true ]; then
+        echo &quot;&quot;
+        echo &quot;📥 Downloading command files to $target_dir/commands/&quot;
+        mkdir -p &quot;$target_dir/commands&quot;
+
+        for cmd in plan-product create-spec create-tasks execute-tasks analyze-product; do
+            download_file &quot;${BASE_URL}/commands/${cmd}.md&quot; \
+                &quot;$target_dir/commands/${cmd}.md&quot; \
+                &quot;$overwrite_std&quot; \
+                &quot;commands/${cmd}.md&quot;
+        done
+    fi
+}</file><file path="setup/project.sh">#!/bin/bash
+
+# Agent OS Project Installation Script
+# This script installs Agent OS in a project directory
+
+set -e  # Exit on error
+
+# Initialize flags
+NO_BASE=false
+OVERWRITE_INSTRUCTIONS=false
+OVERWRITE_STANDARDS=false
+CLAUDE_CODE=false
+CURSOR=false
+PROJECT_TYPE=&quot;&quot;
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --no-base)
+            NO_BASE=true
+            shift
+            ;;
+        --overwrite-instructions)
+            OVERWRITE_INSTRUCTIONS=true
+            shift
+            ;;
+        --overwrite-standards)
+            OVERWRITE_STANDARDS=true
+            shift
+            ;;
+        --claude-code|--claude|--claude_code)
+            CLAUDE_CODE=true
+            shift
+            ;;
+        --cursor|--cursor-cli)
+            CURSOR=true
+            shift
+            ;;
+        --project-type=*)
+            PROJECT_TYPE=&quot;${1#*=}&quot;
+            shift
+            ;;
+        -h|--help)
+            echo &quot;Usage: $0 [OPTIONS]&quot;
+            echo &quot;&quot;
+            echo &quot;Options:&quot;
+            echo &quot;  --no-base                   Install from GitHub (not from a base Agent OSinstallation on your system)&quot;
+            echo &quot;  --overwrite-instructions    Overwrite existing instruction files&quot;
+            echo &quot;  --overwrite-standards       Overwrite existing standards files&quot;
+            echo &quot;  --claude-code               Add Claude Code support&quot;
+            echo &quot;  --cursor                    Add Cursor support&quot;
+            echo &quot;  --project-type=TYPE         Use specific project type for installation&quot;
+            echo &quot;  -h, --help                  Show this help message&quot;
+            echo &quot;&quot;
+            exit 0
+            ;;
+        *)
+            echo &quot;Unknown option: $1&quot;
+            echo &quot;Use --help for usage information&quot;
+            exit 1
+            ;;
+    esac
+done
+
+echo &quot;&quot;
+echo &quot;🚀 Agent OS Project Installation&quot;
+echo &quot;================================&quot;
+echo &quot;&quot;
+
+# Get project directory info
+CURRENT_DIR=$(pwd)
+PROJECT_NAME=$(basename &quot;$CURRENT_DIR&quot;)
+INSTALL_DIR=&quot;./.agent-os&quot;
+
+echo &quot;📍 Installing Agent OS to this project&apos;s root directory ($PROJECT_NAME)&quot;
+echo &quot;&quot;
+
+# Determine if running from base installation or GitHub
+if [ &quot;$NO_BASE&quot; = true ]; then
+    IS_FROM_BASE=false
+    echo &quot;📦 Installing directly from GitHub (no base installation)&quot;
+    # Set BASE_URL for GitHub downloads
+    BASE_URL=&quot;https://raw.githubusercontent.com/buildermethods/agent-os/main&quot;
+    # Download and source functions when running from GitHub
+    TEMP_FUNCTIONS=&quot;/tmp/agent-os-functions-$$.sh&quot;
+    curl -sSL &quot;${BASE_URL}/setup/functions.sh&quot; -o &quot;$TEMP_FUNCTIONS&quot;
+    source &quot;$TEMP_FUNCTIONS&quot;
+    rm &quot;$TEMP_FUNCTIONS&quot;
+else
+    IS_FROM_BASE=true
+    # Get the base Agent OS directory
+    SCRIPT_DIR=&quot;$(cd &quot;$(dirname &quot;$0&quot;)&quot; &amp;&amp; pwd)&quot;
+    BASE_AGENT_OS=&quot;$(dirname &quot;$SCRIPT_DIR&quot;)&quot;
+    echo &quot;✓ Using Agent OS base installation at $BASE_AGENT_OS&quot;
+    # Source shared functions from base installation
+    source &quot;$SCRIPT_DIR/functions.sh&quot;
+fi
+
+echo &quot;&quot;
+echo &quot;📁 Creating project directories...&quot;
+echo &quot;&quot;
+mkdir -p &quot;$INSTALL_DIR&quot;
+
+# Configure tools and project type based on installation type
+if [ &quot;$IS_FROM_BASE&quot; = true ]; then
+    # Auto-enable tools based on base config if no flags provided
+    if [ &quot;$CLAUDE_CODE&quot; = false ]; then
+        # Check if claude_code is enabled in base config
+        if grep -q &quot;claude_code:&quot; &quot;$BASE_AGENT_OS/config.yml&quot; &amp;&amp; \
+           grep -A1 &quot;claude_code:&quot; &quot;$BASE_AGENT_OS/config.yml&quot; | grep -q &quot;enabled: true&quot;; then
+            CLAUDE_CODE=true
+            echo &quot;  ✓ Auto-enabling Claude Code support (from Agent OS config)&quot;
+        fi
+    fi
+
+    if [ &quot;$CURSOR&quot; = false ]; then
+        # Check if cursor is enabled in base config
+        if grep -q &quot;cursor:&quot; &quot;$BASE_AGENT_OS/config.yml&quot; &amp;&amp; \
+           grep -A1 &quot;cursor:&quot; &quot;$BASE_AGENT_OS/config.yml&quot; | grep -q &quot;enabled: true&quot;; then
+            CURSOR=true
+            echo &quot;  ✓ Auto-enabling Cursor support (from Agent OS config)&quot;
+        fi
+    fi
+
+    # Read project type from config or use flag
+    if [ -z &quot;$PROJECT_TYPE&quot; ] &amp;&amp; [ -f &quot;$BASE_AGENT_OS/config.yml&quot; ]; then
+        # Try to read default_project_type from config
+        PROJECT_TYPE=$(grep &quot;^default_project_type:&quot; &quot;$BASE_AGENT_OS/config.yml&quot; | cut -d&apos; &apos; -f2 | tr -d &apos; &apos;)
+        if [ -z &quot;$PROJECT_TYPE&quot; ]; then
+            PROJECT_TYPE=&quot;default&quot;
+        fi
+    elif [ -z &quot;$PROJECT_TYPE&quot; ]; then
+        PROJECT_TYPE=&quot;default&quot;
+    fi
+
+    echo &quot;&quot;
+    echo &quot;📦 Using project type: $PROJECT_TYPE&quot;
+
+    # Determine source paths based on project type
+    INSTRUCTIONS_SOURCE=&quot;&quot;
+    STANDARDS_SOURCE=&quot;&quot;
+
+    if [ &quot;$PROJECT_TYPE&quot; = &quot;default&quot; ]; then
+        INSTRUCTIONS_SOURCE=&quot;$BASE_AGENT_OS/instructions&quot;
+        STANDARDS_SOURCE=&quot;$BASE_AGENT_OS/standards&quot;
+    else
+        # Look up project type in config
+        if grep -q &quot;^  $PROJECT_TYPE:&quot; &quot;$BASE_AGENT_OS/config.yml&quot;; then
+            # Extract paths for this project type
+            INSTRUCTIONS_PATH=$(awk &quot;/^  $PROJECT_TYPE:/{f=1} f&amp;&amp;/instructions:/{print \$2; exit}&quot; &quot;$BASE_AGENT_OS/config.yml&quot;)
+            STANDARDS_PATH=$(awk &quot;/^  $PROJECT_TYPE:/{f=1} f&amp;&amp;/standards:/{print \$2; exit}&quot; &quot;$BASE_AGENT_OS/config.yml&quot;)
+
+            # Expand tilde in paths
+            INSTRUCTIONS_SOURCE=$(eval echo &quot;$INSTRUCTIONS_PATH&quot;)
+            STANDARDS_SOURCE=$(eval echo &quot;$STANDARDS_PATH&quot;)
+
+            # Check if paths exist
+            if [ ! -d &quot;$INSTRUCTIONS_SOURCE&quot; ] || [ ! -d &quot;$STANDARDS_SOURCE&quot; ]; then
+                echo &quot;  ⚠️  Project type &apos;$PROJECT_TYPE&apos; paths not found, falling back to default instructions and standards&quot;
+                INSTRUCTIONS_SOURCE=&quot;$BASE_AGENT_OS/instructions&quot;
+                STANDARDS_SOURCE=&quot;$BASE_AGENT_OS/standards&quot;
+            fi
+        else
+            echo &quot;  ⚠️  Project type &apos;$PROJECT_TYPE&apos; not found in config, using default instructions and standards&quot;
+            INSTRUCTIONS_SOURCE=&quot;$BASE_AGENT_OS/instructions&quot;
+            STANDARDS_SOURCE=&quot;$BASE_AGENT_OS/standards&quot;
+        fi
+    fi
+
+    # Copy instructions and standards from determined sources
+    echo &quot;&quot;
+    echo &quot;📥 Installing instruction files to $INSTALL_DIR/instructions/&quot;
+    copy_directory &quot;$INSTRUCTIONS_SOURCE&quot; &quot;$INSTALL_DIR/instructions&quot; &quot;$OVERWRITE_INSTRUCTIONS&quot;
+
+    echo &quot;&quot;
+    echo &quot;📥 Installing standards files to $INSTALL_DIR/standards/&quot;
+    copy_directory &quot;$STANDARDS_SOURCE&quot; &quot;$INSTALL_DIR/standards&quot; &quot;$OVERWRITE_STANDARDS&quot;
+else
+    # Running directly from GitHub - download from GitHub
+    if [ -z &quot;$PROJECT_TYPE&quot; ]; then
+        PROJECT_TYPE=&quot;default&quot;
+    fi
+
+    echo &quot;📦 Using project type: $PROJECT_TYPE (default when installing from GitHub)&quot;
+
+    # Install instructions and standards from GitHub (no commands folder needed)
+    install_from_github &quot;$INSTALL_DIR&quot; &quot;$OVERWRITE_INSTRUCTIONS&quot; &quot;$OVERWRITE_STANDARDS&quot; false
+fi
+
+# Handle Claude Code installation for project
+if [ &quot;$CLAUDE_CODE&quot; = true ]; then
+    echo &quot;&quot;
+    echo &quot;📥 Installing Claude Code support...&quot;
+    mkdir -p &quot;./.claude/commands&quot;
+    mkdir -p &quot;./.claude/agents&quot;
+
+    if [ &quot;$IS_FROM_BASE&quot; = true ]; then
+        # Copy from base installation
+        echo &quot;  📂 Commands:&quot;
+        for cmd in plan-product create-spec create-tasks execute-tasks analyze-product; do
+            if [ -f &quot;$BASE_AGENT_OS/commands/${cmd}.md&quot; ]; then
+                copy_file &quot;$BASE_AGENT_OS/commands/${cmd}.md&quot; &quot;./.claude/commands/${cmd}.md&quot; &quot;false&quot; &quot;commands/${cmd}.md&quot;
+            else
+                echo &quot;  ⚠️  Warning: ${cmd}.md not found in base installation&quot;
+            fi
+        done
+
+        echo &quot;&quot;
+        echo &quot;  📂 Agents:&quot;
+        for agent in context-fetcher date-checker file-creator git-workflow project-manager test-runner; do
+            if [ -f &quot;$BASE_AGENT_OS/claude-code/agents/${agent}.md&quot; ]; then
+                copy_file &quot;$BASE_AGENT_OS/claude-code/agents/${agent}.md&quot; &quot;./.claude/agents/${agent}.md&quot; &quot;false&quot; &quot;agents/${agent}.md&quot;
+            else
+                echo &quot;  ⚠️  Warning: ${agent}.md not found in base installation&quot;
+            fi
+        done
+    else
+        # Download from GitHub when using --no-base
+        echo &quot;  Downloading Claude Code files from GitHub...&quot;
+        echo &quot;&quot;
+        echo &quot;  📂 Commands:&quot;
+        for cmd in plan-product create-spec create-tasks execute-tasks analyze-product; do
+            download_file &quot;${BASE_URL}/commands/${cmd}.md&quot; \
+                &quot;./.claude/commands/${cmd}.md&quot; \
+                &quot;false&quot; \
+                &quot;commands/${cmd}.md&quot;
+        done
+
+        echo &quot;&quot;
+        echo &quot;  📂 Agents:&quot;
+        for agent in context-fetcher date-checker file-creator git-workflow project-manager test-runner; do
+            download_file &quot;${BASE_URL}/claude-code/agents/${agent}.md&quot; \
+                &quot;./.claude/agents/${agent}.md&quot; \
+                &quot;false&quot; \
+                &quot;agents/${agent}.md&quot;
+        done
+    fi
+fi
+
+# Handle Cursor installation for project
+if [ &quot;$CURSOR&quot; = true ]; then
+    echo &quot;&quot;
+    echo &quot;📥 Installing Cursor support...&quot;
+    mkdir -p &quot;./.cursor/rules&quot;
+
+    echo &quot;  📂 Rules:&quot;
+
+    if [ &quot;$IS_FROM_BASE&quot; = true ]; then
+        # Convert commands from base installation to Cursor rules
+        for cmd in plan-product create-spec create-tasks execute-tasks analyze-product; do
+            if [ -f &quot;$BASE_AGENT_OS/commands/${cmd}.md&quot; ]; then
+                convert_to_cursor_rule &quot;$BASE_AGENT_OS/commands/${cmd}.md&quot; &quot;./.cursor/rules/${cmd}.mdc&quot;
+            else
+                echo &quot;  ⚠️  Warning: ${cmd}.md not found in base installation&quot;
+            fi
+        done
+    else
+        # Download from GitHub and convert when using --no-base
+        echo &quot;  Downloading and converting from GitHub...&quot;
+        for cmd in plan-product create-spec create-tasks execute-tasks analyze-product; do
+            TEMP_FILE=&quot;/tmp/${cmd}.md&quot;
+            curl -s -o &quot;$TEMP_FILE&quot; &quot;${BASE_URL}/commands/${cmd}.md&quot;
+            if [ -f &quot;$TEMP_FILE&quot; ]; then
+                convert_to_cursor_rule &quot;$TEMP_FILE&quot; &quot;./.cursor/rules/${cmd}.mdc&quot;
+                rm &quot;$TEMP_FILE&quot;
+            fi
+        done
+    fi
+fi
+
+# Success message
+echo &quot;&quot;
+echo &quot;✅ Agent OS has been installed in your project ($PROJECT_NAME)!&quot;
+echo &quot;&quot;
+echo &quot;📍 Project-level files installed to:&quot;
+echo &quot;   .agent-os/instructions/    - Agent OS instructions&quot;
+echo &quot;   .agent-os/standards/       - Development standards&quot;
+
+if [ &quot;$CLAUDE_CODE&quot; = true ]; then
+    echo &quot;   .claude/commands/          - Claude Code commands&quot;
+    echo &quot;   .claude/agents/            - Claude Code specialized agents&quot;
+fi
+
+if [ &quot;$CURSOR&quot; = true ]; then
+    echo &quot;   .cursor/rules/             - Cursor command rules&quot;
+fi
+
+echo &quot;&quot;
+echo &quot;--------------------------------&quot;
+echo &quot;&quot;
+echo &quot;Next steps:&quot;
+echo &quot;&quot;
+
+if [ &quot;$CLAUDE_CODE&quot; = true ]; then
+    echo &quot;Claude Code useage:&quot;
+    echo &quot;  /plan-product    - Set the mission &amp; roadmap for a new product&quot;
+    echo &quot;  /analyze-product - Set up the mission and roadmap for an existing product&quot;
+    echo &quot;  /create-spec     - Create a spec for a new feature&quot;
+    echo &quot;  /execute-tasks   - Build and ship code for a new feature&quot;
+    echo &quot;&quot;
+fi
+
+if [ &quot;$CURSOR&quot; = true ]; then
+    echo &quot;Cursor useage:&quot;
+    echo &quot;  @plan-product    - Set the mission &amp; roadmap for a new product&quot;
+    echo &quot;  @analyze-product - Set up the mission and roadmap for an existing product&quot;
+    echo &quot;  @create-spec     - Create a spec for a new feature&quot;
+    echo &quot;  @execute-tasks   - Build and ship code for a new feature&quot;
+    echo &quot;&quot;
+fi
+
+echo &quot;--------------------------------&quot;
+echo &quot;&quot;
+echo &quot;Refer to the official Agent OS docs at:&quot;
+echo &quot;https://buildermethods.com/agent-os&quot;
+echo &quot;&quot;
+echo &quot;Keep building! 🚀&quot;
+echo &quot;&quot;</file><file path="standards/code-style/css-style.md"># CSS Style Guide
+
+We always use the latest version of TailwindCSS for all CSS.
+
+### Multi-line CSS classes in markup
+
+- We use a unique multi-line formatting style when writing Tailwind CSS classes in HTML markup and ERB tags, where the classes for each responsive size are written on their own dedicated line.
+- The top-most line should be the smallest size (no responsive prefix). Each line below it should be the next responsive size up.
+- Each line of CSS classes should be aligned vertically.
+- focus and hover classes should be on their own additional dedicated lines.
+- We implement one additional responsive breakpoint size called &apos;xs&apos; which represents 400px.
+- If there are any custom CSS classes being used, those should be included at the start of the first line.
+
+**Example of multi-line Tailwind CSS classes:**
+
+&lt;div class=&quot;custom-cta bg-gray-50 dark:bg-gray-900 p-4 rounded cursor-pointer w-full
+            hover:bg-gray-100 dark:hover:bg-gray-800
+            xs:p-6
+            sm:p-8 sm:font-medium
+            md:p-10 md:text-lg
+            lg:p-12 lg:text-xl lg:font-semibold lg:2-3/5
+            xl:p-14 xl:text-2xl
+            2xl:p-16 2xl:text-3xl 2xl:font-bold 2xl:w-3/4&quot;&gt;
+  I&apos;m a call-to-action!
+&lt;/div&gt;</file><file path="standards/code-style/html-style.md"># HTML Style Guide
+
+## Structure Rules
+- Use 2 spaces for indentation
+- Place nested elements on new lines with proper indentation
+- Content between tags should be on its own line when multi-line
+
+## Attribute Formatting
+- Place each HTML attribute on its own line
+- Align attributes vertically
+- Keep the closing `&gt;` on the same line as the last attribute
+
+## Example HTML Structure
+
+```html
+&lt;div class=&quot;container&quot;&gt;
+  &lt;header class=&quot;flex flex-col space-y-2
+                 md:flex-row md:space-y-0 md:space-x-4&quot;&gt;
+    &lt;h1 class=&quot;text-primary dark:text-primary-300&quot;&gt;
+      Page Title
+    &lt;/h1&gt;
+    &lt;nav class=&quot;flex flex-col space-y-2
+                md:flex-row md:space-y-0 md:space-x-4&quot;&gt;
+      &lt;a href=&quot;/&quot;
+         class=&quot;btn-ghost&quot;&gt;
+        Home
+      &lt;/a&gt;
+      &lt;a href=&quot;/about&quot;
+         class=&quot;btn-ghost&quot;&gt;
+        About
+      &lt;/a&gt;
+    &lt;/nav&gt;
+  &lt;/header&gt;
+&lt;/div&gt;
+```</file><file path="standards/code-style/javascript-style.md"># Javascript Style Guide</file><file path="standards/best-practices.md"># Development Best Practices
+
+## Context
+
+Global development guidelines for Agent OS projects.
+
+&lt;conditional-block context-check=&quot;core-principles&quot;&gt;
+IF this Core Principles section already read in current context:
+  SKIP: Re-reading this section
+  NOTE: &quot;Using Core Principles already in context&quot;
+ELSE:
+  READ: The following principles
+
+## Core Principles
+
+### Keep It Simple
+- Implement code in the fewest lines possible
+- Avoid over-engineering solutions
+- Choose straightforward approaches over clever ones
+
+### Optimize for Readability
+- Prioritize code clarity over micro-optimizations
+- Write self-documenting code with clear variable names
+- Add comments for &quot;why&quot; not &quot;what&quot;
+
+### DRY (Don&apos;t Repeat Yourself)
+- Extract repeated business logic to private methods
+- Extract repeated UI markup to reusable components
+- Create utility functions for common operations
+
+### File Structure
+- Keep files focused on a single responsibility
+- Group related functionality together
+- Use consistent naming conventions
+&lt;/conditional-block&gt;
+
+&lt;conditional-block context-check=&quot;dependencies&quot; task-condition=&quot;choosing-external-library&quot;&gt;
+IF current task involves choosing an external library:
+  IF Dependencies section already read in current context:
+    SKIP: Re-reading this section
+    NOTE: &quot;Using Dependencies guidelines already in context&quot;
+  ELSE:
+    READ: The following guidelines
+ELSE:
+  SKIP: Dependencies section not relevant to current task
+
+## Dependencies
+
+### Choose Libraries Wisely
+When adding third-party dependencies:
+- Select the most popular and actively maintained option
+- Check the library&apos;s GitHub repository for:
+  - Recent commits (within last 6 months)
+  - Active issue resolution
+  - Number of stars/downloads
+  - Clear documentation
+&lt;/conditional-block&gt;</file><file path="standards/code-style.md"># Code Style Guide
+
+## Context
+
+Global code style rules for Agent OS projects.
+
+&lt;conditional-block context-check=&quot;general-formatting&quot;&gt;
+IF this General Formatting section already read in current context:
+  SKIP: Re-reading this section
+  NOTE: &quot;Using General Formatting rules already in context&quot;
+ELSE:
+  READ: The following formatting rules
+
+## General Formatting
+
+### Indentation
+- Use 2 spaces for indentation (never tabs)
+- Maintain consistent indentation throughout files
+- Align nested structures for readability
+
+### Naming Conventions
+- **Methods and Variables**: Use snake_case (e.g., `user_profile`, `calculate_total`)
+- **Classes and Modules**: Use PascalCase (e.g., `UserProfile`, `PaymentProcessor`)
+- **Constants**: Use UPPER_SNAKE_CASE (e.g., `MAX_RETRY_COUNT`)
+
+### String Formatting
+- Use single quotes for strings: `&apos;Hello World&apos;`
+- Use double quotes only when interpolation is needed
+- Use template literals for multi-line strings or complex interpolation
+
+### Code Comments
+- Add brief comments above non-obvious business logic
+- Document complex algorithms or calculations
+- Explain the &quot;why&quot; behind implementation choices
+- Never remove existing comments unless removing the associated code
+- Update comments when modifying code to maintain accuracy
+- Keep comments concise and relevant
+&lt;/conditional-block&gt;
+
+&lt;conditional-block task-condition=&quot;html-css-tailwind&quot; context-check=&quot;html-css-style&quot;&gt;
+IF current task involves writing or updating HTML, CSS, or TailwindCSS:
+  IF html-style.md AND css-style.md already in context:
+    SKIP: Re-reading these files
+    NOTE: &quot;Using HTML/CSS style guides already in context&quot;
+  ELSE:
+    &lt;context_fetcher_strategy&gt;
+      IF current agent is Claude Code AND context-fetcher agent exists:
+        USE: @agent:context-fetcher
+        REQUEST: &quot;Get HTML formatting rules from code-style/html-style.md&quot;
+        REQUEST: &quot;Get CSS and TailwindCSS rules from code-style/css-style.md&quot;
+        PROCESS: Returned style rules
+      ELSE:
+        READ the following style guides (only if not already in context):
+        - @.agent-os/standards/code-style/html-style.md (if not in context)
+        - @.agent-os/standards/code-style/css-style.md (if not in context)
+    &lt;/context_fetcher_strategy&gt;
+ELSE:
+  SKIP: HTML/CSS style guides not relevant to current task
+&lt;/conditional-block&gt;
+
+&lt;conditional-block task-condition=&quot;javascript&quot; context-check=&quot;javascript-style&quot;&gt;
+IF current task involves writing or updating JavaScript:
+  IF javascript-style.md already in context:
+    SKIP: Re-reading this file
+    NOTE: &quot;Using JavaScript style guide already in context&quot;
+  ELSE:
+    &lt;context_fetcher_strategy&gt;
+      IF current agent is Claude Code AND context-fetcher agent exists:
+        USE: @agent:context-fetcher
+        REQUEST: &quot;Get JavaScript style rules from code-style/javascript-style.md&quot;
+        PROCESS: Returned style rules
+      ELSE:
+        READ: @.agent-os/standards/code-style/javascript-style.md
+    &lt;/context_fetcher_strategy&gt;
+ELSE:
+  SKIP: JavaScript style guide not relevant to current task
+&lt;/conditional-block&gt;</file><file path="standards/tech-stack.md"># Tech Stack
+
+## Context
+
+Global tech stack defaults for Agent OS projects, overridable in project-specific `.agent-os/product/tech-stack.md`.
+
+- App Framework: Ruby on Rails 8.0+
+- Language: Ruby 3.2+
+- Primary Database: PostgreSQL 17+
+- ORM: Active Record
+- JavaScript Framework: React latest stable
+- Build Tool: Vite
+- Import Strategy: Node.js modules
+- Package Manager: npm
+- Node Version: 22 LTS
+- CSS Framework: TailwindCSS 4.0+
+- UI Components: Instrumental Components latest
+- UI Installation: Via development gems group
+- Font Provider: Google Fonts
+- Font Loading: Self-hosted for performance
+- Icons: Lucide React components
+- Application Hosting: Digital Ocean App Platform/Droplets
+- Hosting Region: Primary region based on user base
+- Database Hosting: Digital Ocean Managed PostgreSQL
+- Database Backups: Daily automated
+- Asset Storage: Amazon S3
+- CDN: CloudFront
+- Asset Access: Private with signed URLs
+- CI/CD Platform: GitHub Actions
+- CI/CD Trigger: Push to main/staging branches
+- Tests: Run before deployment
+- Production Environment: main branch
+- Staging Environment: staging branch</file><file path=".gitignore"># macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Dependencies
+node_modules/
+
+# Temporary files
+*.tmp
+*.temp</file><file path="CHANGELOG.md"># Changelog
+
+All notable changes to Agent OS will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [1.4.2] - 2025-08-24
+
+### Enforced full three-phase task execution
+
+- Updated `instructions/core/execute-tasks.md` to strictly require all three phases (pre-execution, execution loop, post-execution) and to invoke `instructions/core/post-execution-tasks.md` after task completion.
+
+### Post-execution process overhaul
+
+- Renamed `instructions/core/complete-tasks.md` to `instructions/core/post-execution-tasks.md`.
+- Improved the post-execution workflow by adding clarity and removing bloat in instructions.
+
+## [1.4.1] - 2025-08-18
+
+### Replaced Decisions with Recaps
+
+Earlier versions added a decisions.md inside a project&apos;s .agent-os/product/.  In practice, this was rarely used and didn&apos;t help future development.
+
+It&apos;s been replaced with a new system for creating &quot;Recaps&quot;—short summaries of what was built—after every feature spec&apos;s implementation has been completed.  Similar to a changelog, but more descriptive and context-focused.  These recaps are easy to reference by both humans and AI agents.
+
+Recaps are automatically generated via the new complete-tasks.md process.
+
+### Added Project-Manager Subagent
+
+A goal of this update was to tighten up the processes for creating specs and executing tasks, ensuring these processes are executed reliably.  Sounds like the job for a &quot;project manager&quot;.
+
+This update introduces a new subagent (for Claude Code) called project-manager which handles all task completion, status updates, and reporting progress back to you.
+
+### Spec Creation &amp; Task Execution Reliability Improvements
+
+Several changes to the instructions, processes, and executions, all aimed at helping agents follow the process steps consistently.
+
+- Consolidated task execution instructions with clear step-by-step processes
+- Added post-flight verification rules to ensure instruction compliance
+- Improved subagent delegation tracking and reporting
+- Standardized test suite verification and git workflow integration
+- Enhanced task completion criteria validation and status management
+
+## [1.4.0] - 2025-08-17
+
+BIG updates in this one!  Thanks for all the feedback, requests and support 🙏
+
+### All New Installation Process
+
+The way Agent OS gets installed is structured differently from prior versions.  The new system works as follows:
+
+There are 2 installation processes:
+- Your &quot;Base installation&quot; (now optional, but still recommended!)
+- Your &quot;Project installation&quot;
+
+**&quot;Base installation&quot;**
+- Installs all of the Agent OS files to a location of your choosing on your system where they can be customized (especially your standards) and maintained.
+- Project installations copy files from your base installation, so they can be customized and self-contained within each individual project.
+- Your base installation now has a config.yml
+
+To install the Agent OS base installation,
+
+1. cd to a location of your choice (your system&apos;s home folder is a good choice).
+
+2. Run one of these commands:
+  - Agent OS with Claude Code support:
+  `curl -sSL https://raw.githubusercontent.com/buildermethods/agent-os/main/setup/base.sh | bash -s -- --claude-code`
+  - Agent OS with Cursor support:
+  `curl -sSL https://raw.githubusercontent.com/buildermethods/agent-os/main/setup/base.sh | bash -s -- --cursor`
+  - Agent OS with Claude Code &amp; Cursor support:
+  `curl -sSL https://raw.githubusercontent.com/buildermethods/agent-os/main/setup/base.sh | bash -s -- --claude-code --cursor`
+
+3. Customize your /standards (just like earlier versions)
+
+**Project installation**
+
+- Now each project codebase gets it&apos;s own self-contained installation of Agent OS.  It no longer references instructions or standards that reside elsewhere on your system.  These all get installed directly into your project&apos;s .agent-os folder, which brings several benefits:
+  - No external references = more reliable Agent OS commands &amp; workflows.
+  - You can commit your instructions, standards, Claude Code commands and agents to your project&apos;s github repo for team access.
+  - You can customize standards differently per project than what&apos;s in your base installation.
+
+Your project installation command will be based on where you installed the Agent OS base installation.
+- If you&apos;ve installed it to your system&apos;s home folder, then your project installation command will be `~/.agent-os/setup/project.sh`.
+- If you&apos;ve installed it elsewhere, your command will be `/path/to/agent-os/setup/project.sh`
+(after your base installation, it will show you _your_ project installation command. It&apos;s a good idea to save it or make an alias if you work on many projects.)
+
+If (for whatever reason) you didn&apos;t install the base installation, you can still install Agent OS directly into a project, by pulling it directly off of the public github repo using the following command.
+- Note: This means your standards folder won&apos;t inherit your defaults from a base installation. You&apos;d need to customize the files in the standards folder for this project.
+`curl -sSL https://raw.githubusercontent.com/buildermethods/agent-os/main/setup/project.sh | bash -s -- --no-base --claude-code --cursor`
+
+### Agent OS config.yml
+
+When you install the Agent OS base installation, that now includes a config.yml file.  Currently this file is used for:
+- Tracking the Agent OS version you have installed
+- Which coding agents (Claude Code, Cursor) you&apos;re using
+- Project Types (new! read on...)
+
+### Project Types
+
+If you work on different types of projects, you can define different sets of standards, code style, and instructions for each!
+
+- By default, a new installation of Agent OS into a project will copy its instructions and standards from your base installation&apos;s /instructions and /standards.
+- You can define additional project types by doing the following:
+  - Setup a folder (typically inside your base installation&apos;s .agent-os folder, but it can be anywhere on your system) which contains /instructions and /standards folders (copy these from your base install, then customize).
+  - Define the project type&apos;s folder location on your system in your base install&apos;s config.yml
+- Using project types:
+  - If you&apos;ve named a project type, &apos;ruby-on-rails&apos;, when running your project install command, add the flag --project-type=ruby-on-rails.
+  - To make a project type your default for new projects, set it&apos;s name as the value for default_project_type in config.yml
+
+### Removed or changed in version 1.4.0:
+
+This update does away with the old installation script files:
+- setup.sh (replaced by /setup/base.sh and /setup/project.sh)
+- setup-claude-code.sh (now you add --claude-code flag to the install commands or enable it in your Agent OS config.yml)
+- setup-cursor.sh (now you add --cursor flag to the install commands or enable it in your Agent OS config.yml)
+
+Claude Code Agent OS commands now should _not_ be installed in the `~/.agent-os/.claude/commands` folder.  Now, these are copied from ~/.agent-os/commands into each project&apos;s `~/.claude/commands` folder (this prevents duplicate commands showing in in Claude Code&apos;s commands list).  The same approach applies to Claude Code subagents files.
+
+### Upgrading to version 1.4.0
+
+Follow these steps to update a previous version to 1.4.0:
+
+1. If you&apos;ve customized any files in /instructions, back those up now. They will be overwritten.
+
+2. Navigate to your home directory (or whichever location you want to have your Agent OS base installation)
+
+3. Run the following to command, which includes flags to overwrite your /instructions (remove the --cursor flag if not using Cursor):
+`curl -sSL https://raw.githubusercontent.com/buildermethods/agent-os/main/setup/base.sh | bash -s -- --overwrite-instructions --claude-code --cursor`
+
+4. If your ~/.claude/commands contain Agent OS commands, remove those and copy the versions that are now in your base installation&apos;s commands folder into your _project&apos;s_ `.claude/commands` folder.
+
+5. Navigate to your project. Run your project installation command to install Agent OS instructions and standards into your project&apos;s installation. If your Agent OS base installation is in your system&apos;s home folder (like previous versions), then your project installation will be: `~/.agent-os/setup/project.sh`
+
+## [1.3.1] - 2025-08-02
+
+### Added
+- **Date-Checker Subagent** - New specialized Claude Code subagent for accurate date determination using file system timestamps
+  - Uses temporary file creation to extract current date in YYYY-MM-DD format
+  - Includes context checking to avoid duplication
+  - Provides clear validation and error handling
+
+### Changed
+- **Create-Spec Instructions** - Updated `instructions/core/create-spec.md` to use the new date-checker subagent
+  - Replaced complex inline date determination logic with simple subagent delegation
+  - Simplified step 4 (date_determination) by removing 45 lines of validation and fallback code
+  - Cleaner instruction flow with specialized agent handling date logic
+
+### Improved
+- **Code Maintainability** - Date determination logic centralized in reusable subagent
+- **Instruction Clarity** - Simplified create-spec workflow with cleaner delegation pattern
+- **Error Handling** - More robust date determination with dedicated validation rules
+
+## [1.3.0] - 2025-08-01
+
+### Added
+- **Pre-flight Check System** - New `meta/pre-flight.md` instruction for centralized agent detection and initialization
+- **Proactive Agent Usage** - Updated agent descriptions to encourage proactive use when appropriate
+- **Structured Instruction Organization** - New folder structure with `core/` and `meta/` subdirectories
+
+### Changed
+- **Instruction File Structure** - Reorganized all instruction files into subdirectories:
+  - Core instructions moved to `instructions/core/` (plan-product, create-spec, execute-tasks, execute-task, analyze-product)
+  - Meta instructions in `instructions/meta/` (pre-flight, more to come)
+- **Simplified XML Metadata** - Removed verbose `&lt;ai_meta&gt;` and `&lt;step_metadata&gt;` blocks for cleaner, more readable instructions
+- **Subagent Integration** - Replaced manual agent detection with centralized pre-flight check across all instruction files to enforce delegation and preserve main agent&apos;s context.
+- **Step Definitions** - Added `subagent` attribute to steps for clearer delegation of work to help enforce delegation and preserve main agent&apos;s context.
+- **Setup Script** - Updated to create subdirectories and download files to new locations
+
+### Improved
+- **Code Clarity** - Removed redundant XML instructions in favor of descriptive step purposes
+- **Agent Efficiency** - Centralized agent detection reduces repeated checks throughout workflows
+- **Maintainability** - Cleaner instruction format with less XML boilerplate
+- **User Experience** - Clearer indication of when specialized agents will be used proactively
+
+### Removed
+- **CLAUDE.md** - Removed deprecated Claude Code configuration file (functionality moved to pre-flight system, preventing over-reading instructions into context)
+- **Redundant Instructions** - Eliminated verbose ACTION/MODIFY/VERIFY instruction blocks
+
+## [1.2.0] - 2025-07-29
+
+### Added
+- **Claude Code Specialized Subagents** - New agents to offload specific tasks for improved efficiency:
+  - `test-runner.md` - Handles test execution and failure analysis with minimal toolset
+  - `context-fetcher.md` - Retrieves information from files while checking context to avoid duplication
+  - `git-workflow.md` - Manages git operations, branches, commits, and PR creation
+  - `file-creator.md` - Creates files, directories, and applies consistent templates
+- **Agent Detection Pattern** - Single check at process start with boolean flags for efficiency
+- **Subagent Integration** across all instruction files with automatic fallback for non-Claude Code users
+
+### Changed
+- **Instruction Files** - All updated to support conditional agent usage:
+  - `execute-tasks.md` - Uses git-workflow (branch management, PR creation), test-runner (full suite), and context-fetcher (loading lite files)
+  - `execute-task.md` - Uses context-fetcher (best practices, code style) and test-runner (task-specific tests)
+  - `plan-product.md` - Uses file-creator (directory creation) and context-fetcher (tech stack defaults)
+  - `create-spec.md` - Uses file-creator (spec folder) and context-fetcher (mission/roadmap checks)
+- **Standards Files** - Updated for conditional agent usage:
+  - `code-style.md` - Uses context-fetcher for loading language-specific style guides
+- **Setup Scripts** - Enhanced to install Claude Code agents:
+  - `setup-claude-code.sh` - Downloads all agents to `~/.claude/agents/` directory
+
+### Improved
+- **Context Efficiency** - Specialized agents use minimal context for their specific tasks
+- **Code Organization** - Complex operations delegated to focused agents with clear responsibilities
+- **Error Handling** - Agents provide targeted error analysis and recovery strategies
+- **Maintainability** - Cleaner main agent code with operations abstracted to subagents
+- **Performance** - Reduced context checks through one-time agent detection pattern
+
+### Technical Details
+- Each agent uses only necessary tools (e.g., test-runner uses only Bash, Read, Grep, Glob)
+- Automatic fallback ensures compatibility for users without Claude Code
+- Consistent `IF has_[agent_name]:` pattern reduces code complexity
+- All agents follow Agent OS conventions (branch naming, commit messages, file templates)
+
+## [1.1.0] - 2025-07-29
+
+### Added
+- New `mission-lite.md` file generation in product initialization for efficient AI context usage
+- New `spec-lite.md` file generation in spec creation for condensed spec summaries
+- New `execute-task.md` instruction file for individual task execution with TDD workflow
+- Task execution loop in `execute-tasks.md` that calls `execute-task.md` for each parent task
+- Language-specific code style guides:
+  - `standards/code-style/css-style.md` for CSS and TailwindCSS
+  - `standards/code-style/html-style.md` for HTML markup
+  - `standards/code-style/javascript-style.md` for JavaScript
+- Conditional loading blocks in `best-practices.md` and `code-style.md` to prevent duplicate context loading
+- Context-aware file loading throughout all instruction files
+
+### Changed
+- Optimized `plan-product.md` to generate condensed versions of documents
+- Enhanced `create-spec.md` with conditional context loading for mission-lite and tech-stack files
+- Simplified technical specification structure by removing multiple approach options
+- Made external dependencies section conditional in technical specifications
+- Updated `execute-tasks.md` to use minimal context loading strategy
+- Improved `execute-task.md` with selective reading of relevant documentation sections
+- Modified roadmap progress check to be conditional and context-aware
+- Updated decision documentation to avoid loading decisions.md and use conditional checks
+- Restructured task execution to follow typical TDD pattern (tests first, implementation, verification)
+
+### Improved
+- Context efficiency by 60-80% through conditional loading and lite file versions
+- Reduced duplication when files are referenced multiple times in a workflow
+- Clearer separation between task-specific and full test suite execution
+- More intelligent file loading that checks current context before reading
+- Better organization of code style rules with language-specific files
+
+### Fixed
+- Duplicate content loading when instruction files are called in loops
+- Unnecessary loading of full documentation files when condensed versions suffice
+- Redundant test suite runs between individual task execution and overall workflow
+
+## [1.0.0] - 2025-07-21
+
+### Added
+- Initial release of Agent OS framework
+- Core instruction files:
+  - `plan-product.md` for product initialization
+  - `create-spec.md` for feature specification
+  - `execute-tasks.md` for task execution
+  - `analyze-product.md` for existing codebase analysis
+- Standard files:
+  - `tech-stack.md` for technology choices
+  - `code-style.md` for formatting rules
+  - `best-practices.md` for development guidelines
+- Product documentation structure:
+  - `mission.md` for product vision
+  - `roadmap.md` for development phases
+  - `decisions.md` for decision logging
+  - `tech-stack.md` for technical architecture
+- Setup scripts for easy installation
+- Integration with AI coding assistants (Claude Code, Cursor)
+- Task management with TDD workflow
+- Spec creation and organization system
+
+[1.4.1]: https://github.com/buildermethods/agent-os/compare/v1.4.0...v1.4.1
+[1.4.2]: https://github.com/buildermethods/agent-os/compare/v1.4.1...v1.4.2
+[1.4.0]: https://github.com/buildermethods/agent-os/compare/v1.3.1...v1.4.0
+[1.3.1]: https://github.com/buildermethods/agent-os/compare/v1.3.0...v1.3.1
+[1.3.0]: https://github.com/buildermethods/agent-os/compare/v1.2.0...v1.3.0
+[1.2.0]: https://github.com/buildermethods/agent-os/compare/v1.1.0...v1.2.0
+[1.1.0]: https://github.com/buildermethods/agent-os/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/buildermethods/agent-os/releases/tag/v1.0.0</file><file path="config.yml"># Agent OS Configuration
+
+# Refer to the official Agent OS documentation at:
+# https://buildermethods.com/agent-os
+
+agent_os_version: 1.4.1
+
+agents:
+  claude_code:
+    enabled: false
+  cursor:
+    enabled: false
+
+project_types:
+  default:
+    instructions: ~/.agent-os/instructions
+    standards: ~/.agent-os/standards
+
+  # type_a:
+  #   instructions: ~/.agent-os/project_types/type_a/instructions
+  #   standards: ~/.agent-os/project_types/type_a/standards
+
+  # type_b:
+  #   instructions: ~/.agent-os/project_types/type_b/instructions
+  #   standards: ~/.agent-os/project_types/type_b/standards
+
+default_project_type: default</file><file path="LICENSE">MIT License
+
+Copyright (c) 2025 CasJam Media LLC (Builder Methods)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the &quot;Software&quot;), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED &quot;AS IS&quot;, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.</file><file path="README.md">&lt;img width=&quot;1280&quot; height=&quot;640&quot; alt=&quot;agent-os-og&quot; src=&quot;https://github.com/user-attachments/assets/f70671a2-66e8-4c80-8998-d4318af55d10&quot; /&gt;
+
+## Your system for spec-driven agentic development.
+
+[Agent OS](https://buildermethods.com/agent-os) transforms AI coding agents from confused interns into productive developers. With structured workflows that capture your standards, your stack, and the unique details of your codebase, Agent OS gives your agents the specs they need to ship quality code on the first try—not the fifth.
+
+Use it with:
+
+✅ Claude Code, Cursor, or any other AI coding tool.
+
+✅ New products or established codebases.
+
+✅ Big features, small fixes, or anything in between.
+
+✅ Any language or framework.
+
+---
+
+### Documentation &amp; Installation
+
+Docs, installation, useage, &amp; best practices 👉 [It&apos;s all here](https://buildermethods.com/agent-os)
+
+---
+
+### Created by Brian Casel @ Builder Methods
+
+Created by Brian Casel, the creator of [Builder Methods](https://buildermethods.com), where Brian helps professional software developers and teams build with AI.
+
+Get Brian&apos;s free resources on building with AI:
+- [Builder Briefing newsletter](https://buildermethods.com)
+- [YouTube](https://youtube.com/@briancasel)</file></files></repomix>

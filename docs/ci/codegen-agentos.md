@@ -1,66 +1,51 @@
-# Codegen × Agent OS CI
-Keep Codegen and Agent OS workflows humming with this reusable GitHub Actions bundle.
+# Codegen × Spec-Driven Design (SDD) CI
 
-## Quickstart
-### New repository (first-time seeding)
-1. Add Actions secrets: `CODEGEN_ORG_ID`, `CODEGEN_TOKEN`, and one-time `CODEGEN_REPO_ID`.
-2. Dispatch the **Seed Agent OS** workflow.
-3. Merge the generated PR to add `.agent-os/` and ideally `.codegen/repo-id`.
-4. Remove the per-repo `CODEGEN_REPO_ID` secret if `.codegen/repo-id` exists.
+This guide walks through managing Codegen runs with the new Spec-Driven Design (SDD) layout. All automation now consumes specs under `.sdd/specs/**` and falls back to legacy AgentOS/Specify content only during a short deprecation window.
 
-### Existing repository
-1. Confirm `.agent-os/` is already checked in (or run the seed workflow once).
-2. Use the **Spec Push** or **Issue** wrapper workflows for daily runs.
+## 1. Prerequisites
+- GitHub Actions secrets: `CODEGEN_ORG_ID`, `CODEGEN_TOKEN`, optionally `CODEGEN_REPO_ID`.
+- Codegen repo pin in `.codegen/repo-id` or the `CODEGEN_REPO_ID` secret.
 
-## Required secrets & repo pinning
-- `CODEGEN_ORG_ID`: your Codegen organization identifier.
-- `CODEGEN_TOKEN`: API token with repo access.
+## 2. Authoring Specs
+1. Copy the templates in `.sdd/templates/` into a new folder named `<YYYY-MM-DD>-<spec-name>/` under `.sdd/specs/`.
+2. Fill in:
+   - `requirements.md` — context, functional and non-functional requirements, success criteria.
+   - `design.md` — architecture diagrams/notes, component responsibilities, data flows.
+   - `tasks.md` — work breakdown, machine actions, validation checklist.
+3. Commit the folder; pushing to the branch triggers the Codegen workflow automatically.
 
-Repo ID resolution order inside the reusable workflow:
-1. `secrets.CODEGEN_REPO_ID`
-2. `.codegen/repo-id` file (single line)
-3. Otherwise: run the seed workflow once with the secret or commit the file.
+## 3. Running Codegen
+- **Spec Push (`Codegen on Spec Push`)**
+  - Fires on any push that touches `.sdd/specs/**` on the default branch or tracked branches.
+  - Uses the newest SDD spec by default; legacy specs are ignored once the deprecation window expires.
 
-Never echo secrets or repository IDs in job logs.
+- **Issue Trigger (`Codegen on Issues`)**
+  - Label an issue with `codegen` or comment `/run-codegen`.
+  - Optionally include `spec_path: .sdd/specs/<...>/requirements.md` or embed a ```prompt``` block to override the auto-selected spec.
 
-## Workflows included
-- Reusable core: `.github/workflows/codegen-agents.yml`
-- Wrappers:
-  - `.github/workflows/seed-agentos.yml` (manual dispatch, `require_agentos=false`)
-  - `.github/workflows/codegen-on-push.yml` (runs on `.agent-os/specs/**` or `.specify/specs/**` updates)
-  - `.github/workflows/codegen-on-issue.yml` (triggered via the `codegen` label or `/run-codegen` comment)
+- **Manual Dispatch**
+  - From the Actions tab, run the `Codegen on Spec Push` workflow using `workflow_dispatch` inputs to override prompt/spec path or disable waiting.
 
-## How it works
-- The SDK call is `Agent(org_id, token).run(prompt)` with repo pinning provided by `CODEGEN_REPO_ID`/`REPOSITORY_ID` environment variables.
-- The prompt auto-builder finds the newest spec and supports both Agent OS and Spec Kit layouts.
-- PR target validation ensures the generated PR targets `${{ github.repository }}` and fails otherwise.
+All routes call the shared reusable workflow `.github/workflows/codegen-agents.yml`, which prioritizes SDD folders and still invokes `Agent(<ORG_ID>, <TOKEN>).run(prompt)`.
 
-## Finding your Codegen repo id
-```bash
-codegen login
-codegen repo --list-repos
-```
-Copy the ID associated with `owner/repo`. Store it once as the `CODEGEN_REPO_ID` secret for seeding, or commit it to `.codegen/repo-id`.
+## 4. Migrating Legacy Specs
+1. Inspect existing AgentOS specs under `.agent-os/specs/`.
+2. Run the helper in dry-run mode to preview conversions:
+   ```bash
+   python scripts/migrate_agentos_to_sdd.py --dry-run
+   ```
+3. Re-run without `--dry-run` once satisfied; review new SDD files and commit them.
+4. Delete the migrated `.agent-os/` folders after verifying the new layout.
 
-## Troubleshooting
-- **401 Unauthorized** → Token/org mismatch or empty secret; regenerate the token and re-paste the secrets.
-- **Forked PR** → Secrets are unavailable by design; dispatch the workflow from the main repository.
-- **Repo mismatch** → Remote origin differs from target; verify the repo slug guard.
-- **“.agent-os not found”** (non-seeding runs) → Seed first with `require_agentos=false`.
-- **No PR URL detected** → The agent finished without returning a PR link; inspect the PRs tab manually.
-- **Missing repo id** → Add `CODEGEN_REPO_ID` once or commit `.codegen/repo-id`.
+## 5. Monitoring & Deprecation
+- The reusable workflow emits `::warning::` logs when it falls back to legacy specs; treat these as prompts to finish migration.
+- After `<DEPRECATION_DAYS>` (defaults to 14), disable `LEGACY_DISCOVERY` in the workflow environment to stop legacy discovery entirely.
+- Confirm that deleting `.agent-os/**` no longer blocks CI—the guard has been removed.
 
-## FAQ
-- **Can I store secrets at the org level?** Yes; grant access to selected repositories.
-- **Do I need `CODEGEN_REPO_ID` forever?** No; rely on `.codegen/repo-id` after seeding.
-- **Does `Agent.run()` accept a repo parameter?** No; the repo is injected via environment variables.
+## 6. Troubleshooting
+- **No spec detected** → Ensure `.sdd/specs/` exists with at least one folder and all three docs; otherwise the workflow posts a fallback notice.
+- **Wrong spec selected** → Provide `spec_path` via dispatch input or issue body to target a specific SDD folder.
+- **Missing repo id** → Add `CODEGEN_REPO_ID` secret or commit `.codegen/repo-id`.
+- **Auth errors** → Rotate `CODEGEN_TOKEN` and confirm the secret is populated.
 
-## Safety notes
-- Never log secrets or repository ID values.
-- Workflows use concurrency per repo/ref and request `permissions: contents: read`.
-
-## Appendix: File map
-- `.github/workflows/codegen-agents.yml` – reusable workflow invoked by wrappers.
-- `.github/workflows/seed-agentos.yml` – seeds Agent OS assets and repo pin file.
-- `.github/workflows/codegen-on-push.yml` – listens for spec path pushes.
-- `.github/workflows/codegen-on-issue.yml` – converts labeled issues into Codegen runs.
+For additional context, see the top-level `README.md` or the comments inside `.github/scripts/codegen_workflow.py`.

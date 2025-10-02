@@ -4,8 +4,7 @@ name: Codegen on Spec Push
 on:
   push:
     paths:
-      - .agent-os/specs/**
-      - .specify/specs/**
+      - .sdd/specs/**
   workflow_dispatch:
     inputs:
       prompt:
@@ -30,7 +29,6 @@ jobs:
     name: Run Codegen on push
     uses: ./.github/workflows/codegen-agents.yml
     with:
-      require_agentos: true
       wait: ${{ github.event_name == 'workflow_dispatch' && inputs.wait || true }}
       prompt: ${{ github.event_name == 'workflow_dispatch' && inputs.prompt || '' }}
       spec_path: ${{ github.event_name == 'workflow_dispatch' && inputs.spec_path || '' }}

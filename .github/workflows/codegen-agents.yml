@@ -19,11 +19,6 @@ on:
         required: false
         type: string
         default: ""
-      require_agentos:
-        description: "Require .agent-os directory to exist"
-        required: false
-        type: boolean
-        default: true
       wait:
         description: "Wait for remote task completion"
         required: false
@@ -167,20 +162,13 @@ jobs:
           } >>"${GITHUB_OUTPUT}"
           echo "::notice::Using Codegen repository id from .codegen/repo-id."
 
-      - name: Require Agent OS directory
-        if: ${{ inputs.require_agentos }}
-        run: |
-          if [ ! -d .agent-os ]; then
-            echo "::error::.agent-os directory is required for this workflow."
-            exit 1
-          fi
-
       - name: Prepare prompt
         id: prompt
         env:
           INPUT_PROMPT: ${{ inputs.prompt }}
           INPUT_SPEC_PATH: ${{ inputs.spec_path }}
           INPUT_SPECS_GLOB: ${{ inputs.specs_glob }}
+          LEGACY_DISCOVERY: 1
         run: |
           set -euo pipefail
           python .github/scripts/codegen_workflow.py prepare-prompt
