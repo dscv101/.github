@@ -205,7 +205,7 @@ headers = {
 base_url = f"https://api.codegen.com/v1/organizations/{org_id}/repos"
 limit = 100
 skip = 0
-repo_id: int | None = None
+repo_id = None
 
 
 def fetch(url: str) -> dict:
