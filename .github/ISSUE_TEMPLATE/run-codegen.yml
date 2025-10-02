@@ -1,15 +1,34 @@
-name: Run Codegen
-description: Trigger Codegen with a prompt and/or Agent OS spec
-labels: [codegen]
+name: Run Codegen Agent OS
+description: Request a Codegen run using the Agent OS issue wrapper.
+labels:
+  - codegen
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Need more context? See [Codegen × Agent OS CI docs](../../docs/ci/codegen-agentos.md).
   - type: textarea
     id: prompt
     attributes:
-      label: Prompt
-      description: High-level instructions or paste a ```prompt block
-      render: bash
+      label: Prompt or goal
+      description: |
+        Provide a one-line goal or include a fenced ```prompt block. You can reference tasks under `.agent-os/specs/.../tasks.md`.
+      placeholder: |
+        Example: Update the onboarding spec for the October release.
+    validations:
+      required: true
   - type: input
     id: spec_path
     attributes:
-      label: spec_path
+      label: Primary spec path (optional)
+      description: Helps the wrapper find the right spec folder.
       placeholder: .agent-os/specs/2025-10-01-feature-x
+  - type: dropdown
+    id: wait
+    attributes:
+      label: Wait for workflow completion?
+      description: Choose whether the wrapper should wait for the agent to post results.
+      options:
+        - Wait and notify me here (default)
+        - Just kick off the run
+      default: 0
