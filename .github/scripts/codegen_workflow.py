@@ -371,22 +371,64 @@ def cmd_run_task() -> None:
         raise SystemExit(1)
 
     try:
+        repo_id = int(resolved_repo_id)
+    except ValueError as exc:
+        raise SystemExit("::error::Resolved repository id must be an integer.") from exc
+
+    try:
         from codegen import Agent  # type: ignore import-not-found
     except Exception as exc:  # noqa: BLE001
         raise SystemExit(f"::error::Failed to import Codegen Agent: {exc}") from exc
 
+    try:
+        from codegen_api_client.models.create_agent_run_input import CreateAgentRunInput  # type: ignore import-not-found
+        from codegen.agents.agent import AgentTask  # type: ignore import-not-found
+    except Exception:
+        CreateAgentRunInput = None  # type: ignore[assignment]
+        AgentTask = None  # type: ignore[assignment]
+
     agent = Agent(org_id=env["CODEGEN_ORG_ID"], token=env["CODEGEN_TOKEN"])
     prompt = env.get("PROMPT", "")
 
-    try:
-        result = agent.run(prompt=prompt)
-    except Exception as exc:  # noqa: BLE001
-        message = str(exc)
-        if "401" in message or "Unauthorized" in message:
-            print(
-                "::error::Unauthorized: verify CODEGEN_ORG_ID/CODEGEN_TOKEN secrets and repository permissions."
+    result: Any
+    if CreateAgentRunInput is not None and AgentTask is not None:
+        try:
+            run_input = CreateAgentRunInput(prompt=prompt, repo_id=repo_id)
+            agent_run_response = agent.agents_api.create_agent_run_v1_organizations_org_id_agent_run_post(  # type: ignore[attr-defined]
+                org_id=int(agent.org_id),
+                create_agent_run_input=run_input,
+                authorization=f"Bearer {agent.token}",
+                _headers={"Content-Type": "application/json"},
             )
-        raise
+            result = AgentTask(agent_run_response, agent.api_client, agent.org_id)
+        except TypeError:
+            # Older SDKs may not accept repo_id; fall back to the default behaviour.
+            try:
+                result = agent.run(prompt=prompt)
+            except Exception as exc:  # noqa: BLE001
+                message = str(exc)
+                if "401" in message or "Unauthorized" in message:
+                    print(
+                        "::error::Unauthorized: verify CODEGEN_ORG_ID/CODEGEN_TOKEN secrets and repository permissions."
+                    )
+                raise
+        except Exception as exc:  # noqa: BLE001
+            message = str(exc)
+            if "401" in message or "Unauthorized" in message:
+                print(
+                    "::error::Unauthorized: verify CODEGEN_ORG_ID/CODEGEN_TOKEN secrets and repository permissions."
+                )
+            raise
+    else:
+        try:
+            result = agent.run(prompt=prompt)
+        except Exception as exc:  # noqa: BLE001
+            message = str(exc)
+            if "401" in message or "Unauthorized" in message:
+                print(
+                    "::error::Unauthorized: verify CODEGEN_ORG_ID/CODEGEN_TOKEN secrets and repository permissions."
+                )
+            raise
 
     payload = _load_result_payload(result)
     outputs: Dict[str, str] = {}
