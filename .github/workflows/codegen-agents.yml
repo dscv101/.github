@@ -150,26 +150,70 @@ jobs:
             printf '%s' "$1" | tr -d '\r\n\t '
           }
 
+          cache_repo_id() {
+            local repo_id
+            repo_id="$(trim "$1")"
+            if [ -z "${repo_id}" ]; then
+              echo "::error::Repository id value is empty after trimming."
+              exit 1
+            fi
+            if [ -z "${TARGET_REPO:-}" ]; then
+              echo "::error::Target repository slug is unavailable for caching."
+              exit 1
+            fi
+            local cache_path
+            cache_path=".codegen/repos/${TARGET_REPO}/repo-id"
+            mkdir -p "$(dirname "${cache_path}")"
+            printf '%s\n' "${repo_id}" >"${cache_path}"
+            printf 'repo-id=%s\n' "${repo_id}" >>"${GITHUB_OUTPUT}"
+          }
+
           if [ -n "${CODEGEN_REPO_ID_SECRET:-}" ]; then
             repo_id="$(trim "${CODEGEN_REPO_ID_SECRET}")"
             if [ -z "${repo_id}" ]; then
               echo "::error::CODEGEN_REPO_ID secret is empty after trimming."
               exit 1
             fi
-            printf '%s\n' "${repo_id}" > .codegen/repo-id
-            printf 'repo-id=%s\n' "${repo_id}" >>"${GITHUB_OUTPUT}"
+            cache_repo_id "${repo_id}"
             echo "::notice::Using Codegen repository id from secret."
             exit 0
           fi
 
-          if [ -f .codegen/repo-id ]; then
-            repo_id="$(head -n 1 .codegen/repo-id | tr -d '\r\n\t ')"
+          repo_cache_path=""
+          if [ -n "${TARGET_REPO:-}" ]; then
+            repo_cache_path=".codegen/repos/${TARGET_REPO}/repo-id"
+          fi
+
+          if [ -n "${repo_cache_path}" ] && [ -f "${repo_cache_path}" ]; then
+            repo_id="$(head -n 1 "${repo_cache_path}" | tr -d '\r\n\t ')"
             if [ -n "${repo_id}" ]; then
-              printf '%s\n' "${repo_id}" > .codegen/repo-id
-              printf 'repo-id=%s\n' "${repo_id}" >>"${GITHUB_OUTPUT}"
-              echo "::notice::Using Codegen repository id from .codegen/repo-id."
+              cache_repo_id "${repo_id}"
+              echo "::notice::Using Codegen repository id cache for '${TARGET_REPO}'."
               exit 0
             fi
+          fi
+
+          legacy_cache=".codegen/repo-id"
+          if [ -f "${legacy_cache}" ]; then
+            legacy_line="$(head -n 1 "${legacy_cache}" | tr -d '\r\n\t ')"
+            if [ -n "${legacy_line}" ]; then
+              case "${legacy_line}" in
+                *:*)
+                  legacy_slug="$(trim "${legacy_line%%:*}")"
+                  legacy_id="$(trim "${legacy_line#*:}")"
+                  if [ -n "${legacy_slug}" ] && [ -n "${legacy_id}" ] && [ "${legacy_slug}" = "${TARGET_REPO}" ]; then
+                    cache_repo_id "${legacy_id}"
+                    echo "::notice::Using Codegen repository id from legacy cache for '${TARGET_REPO}'."
+                    rm -f "${legacy_cache}"
+                    exit 0
+                  fi
+                  ;;
+                *)
+                  echo "::notice::Ignoring legacy repo id cache without repository slug."
+                  ;;
+              esac
+            fi
+            rm -f "${legacy_cache}"
           fi
 
           if [ -z "${CODEGEN_TOKEN:-}" ]; then
@@ -256,9 +300,8 @@ jobs:
             echo "::error::Failed to resolve Codegen repository id automatically."
             exit 1
           fi
-          printf '%s\n' "${repo_id}" > .codegen/repo-id
-          printf 'repo-id=%s\n' "${repo_id}" >>"${GITHUB_OUTPUT}"
-          echo "::notice::Discovered Codegen repository id automatically."
+          cache_repo_id "${repo_id}"
+          echo "::notice::Discovered Codegen repository id automatically for '${TARGET_REPO}'."
 
       - name: Prepare prompt
         id: prompt
