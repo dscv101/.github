@@ -4,7 +4,7 @@ This guide walks through managing Codegen runs with the new Spec-Driven Design (
 
 ## 1. Prerequisites
 - GitHub Actions secrets: `CODEGEN_ORG_ID`, `CODEGEN_TOKEN`, optionally `CODEGEN_REPO_ID`.
-- Codegen repo pin in `.codegen/repo-id` or the `CODEGEN_REPO_ID` secret.
+- The workflow now auto-discovers the Codegen repo id and writes it to `.codegen/repo-id` at runtime (you can still override with the `CODEGEN_REPO_ID` secret or a committed file when needed).
 
 ## 2. Authoring Specs
 1. Copy the templates in `.sdd/templates/` into a new folder named `<YYYY-MM-DD>-<spec-name>/` under `.sdd/specs/`.
@@ -45,7 +45,7 @@ All routes call the shared reusable workflow `.github/workflows/codegen-agents.y
 ## 6. Troubleshooting
 - **No spec detected** → Ensure `.sdd/specs/` exists with at least one folder and all three docs; otherwise the workflow posts a fallback notice.
 - **Wrong spec selected** → Provide `spec_path` via dispatch input or issue body to target a specific SDD folder.
-- **Missing repo id** → Add `CODEGEN_REPO_ID` secret or commit `.codegen/repo-id`.
+- **Repo id discovery failed** → Confirm the repository is connected to your Codegen organisation, the workflow token has access, and the API request is not rate limited; add the `CODEGEN_REPO_ID` secret as a temporary override if needed.
 - **Auth errors** → Rotate `CODEGEN_TOKEN` and confirm the secret is populated.
 
 For additional context, see the top-level `README.md` or the comments inside `.github/scripts/codegen_workflow.py`.

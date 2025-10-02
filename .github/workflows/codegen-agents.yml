@@ -139,28 +139,126 @@ jobs:
         id: repo_id
         env:
           CODEGEN_REPO_ID_SECRET: ${{ secrets.CODEGEN_REPO_ID }}
+          CODEGEN_ORG_ID: ${{ secrets.CODEGEN_ORG_ID }}
+          CODEGEN_TOKEN: ${{ secrets.CODEGEN_TOKEN }}
+          TARGET_REPO: ${{ steps.preflight.outputs.repo-slug }}
         run: |
           set -euo pipefail
+          mkdir -p .codegen
+
+          trim() {
+            printf '%s' "$1" | tr -d '\r\n\t '
+          }
+
           if [ -n "${CODEGEN_REPO_ID_SECRET:-}" ]; then
-            {
-              printf 'repo-id=%s\n' "${CODEGEN_REPO_ID_SECRET}"
-            } >>"${GITHUB_OUTPUT}"
+            repo_id="$(trim "${CODEGEN_REPO_ID_SECRET}")"
+            if [ -z "${repo_id}" ]; then
+              echo "::error::CODEGEN_REPO_ID secret is empty after trimming."
+              exit 1
+            fi
+            printf '%s\n' "${repo_id}" > .codegen/repo-id
+            printf 'repo-id=%s\n' "${repo_id}" >>"${GITHUB_OUTPUT}"
             echo "::notice::Using Codegen repository id from secret."
             exit 0
           fi
-          if [ ! -f .codegen/repo-id ]; then
-            echo "::error::Codegen repository id not provided. Add CODEGEN_REPO_ID secret or commit .codegen/repo-id."
+
+          if [ -f .codegen/repo-id ]; then
+            repo_id="$(head -n 1 .codegen/repo-id | tr -d '\r\n\t ')"
+            if [ -n "${repo_id}" ]; then
+              printf '%s\n' "${repo_id}" > .codegen/repo-id
+              printf 'repo-id=%s\n' "${repo_id}" >>"${GITHUB_OUTPUT}"
+              echo "::notice::Using Codegen repository id from .codegen/repo-id."
+              exit 0
+            fi
+          fi
+
+          if [ -z "${CODEGEN_TOKEN:-}" ]; then
+            echo "::error::CODEGEN_TOKEN is required to discover the repository id."
             exit 1
           fi
-          repo_id=$(head -n 1 .codegen/repo-id | tr -d '\r\n\t ')
+          if [ -z "${CODEGEN_ORG_ID:-}" ]; then
+            echo "::error::CODEGEN_ORG_ID is required to discover the repository id."
+            exit 1
+          fi
+          if [ -z "${TARGET_REPO:-}" ]; then
+            echo "::error::Target repository slug is unavailable."
+            exit 1
+          fi
+
+          repo_id="$(python - <<'PY'
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+
+org_id = os.environ["CODEGEN_ORG_ID"].strip()
+token = os.environ["CODEGEN_TOKEN"].strip()
+target_repo = os.environ["TARGET_REPO"].strip().lower()
+
+headers = {
+    "Authorization": f"Bearer {token}",
+    "Accept": "application/json",
+    "x-organization-id": org_id,
+}
+
+base_url = f"https://api.codegen.com/v1/organizations/{org_id}/repos"
+limit = 100
+skip = 0
+repo_id: int | None = None
+
+
+def fetch(url: str) -> dict:
+    request = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return json.load(response)
+    except urllib.error.HTTPError as exc:  # pragma: no cover - network error handler
+        detail = exc.read().decode("utf-8", errors="ignore")
+        print(
+            f"::error::Failed to query Codegen API (HTTP {exc.code}): {detail}",
+            file=sys.stderr,
+        )
+        raise
+    except Exception as exc:  # pragma: no cover - network error handler
+        print(f"::error::Failed to query Codegen API: {exc}", file=sys.stderr)
+        raise
+
+
+while True:
+    url = f"{base_url}?limit={limit}&skip={skip}"
+    payload = fetch(url)
+    items = payload.get("items") or []
+    for item in items:
+        full_name = (item.get("full_name") or "").lower()
+        if full_name == target_repo:
+            repo_id = item.get("id")
+            break
+    if repo_id is not None:
+        break
+    total = payload.get("total")
+    if not items or total is None:
+        break
+    skip += len(items)
+    if skip >= int(total):
+        break
+
+if repo_id is None:
+    sys.exit(
+        f"::error::Repository '{target_repo}' not found for organization {org_id}."
+    )
+
+print(repo_id)
+PY
+)"
+          repo_id="$(trim "${repo_id}")"
           if [ -z "${repo_id}" ]; then
-            echo "::error::File .codegen/repo-id is empty."
+            echo "::error::Failed to resolve Codegen repository id automatically."
             exit 1
           fi
-          {
-            printf 'repo-id=%s\n' "${repo_id}"
-          } >>"${GITHUB_OUTPUT}"
-          echo "::notice::Using Codegen repository id from .codegen/repo-id."
+          printf '%s\n' "${repo_id}" > .codegen/repo-id
+          printf 'repo-id=%s\n' "${repo_id}" >>"${GITHUB_OUTPUT}"
+          echo "::notice::Discovered Codegen repository id automatically."
 
       - name: Prepare prompt
         id: prompt
