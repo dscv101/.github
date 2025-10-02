@@ -43,51 +43,51 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
-import json
-import os
-import re
+          import json
+          import os
+          import re
 
-with open(os.environ['GITHUB_EVENT_PATH'], 'r', encoding='utf-8') as fh:
-    event = json.load(fh)
+          with open(os.environ['GITHUB_EVENT_PATH'], 'r', encoding='utf-8') as fh:
+              event = json.load(fh)
 
-event_name = os.environ['EVENT_NAME']
-should_run = False
-prompt = ''
-spec_path = ''
-wait_flag = 'true'
+          event_name = os.environ['EVENT_NAME']
+          should_run = False
+          prompt = ''
+          spec_path = ''
+          wait_flag = 'true'
 
-if event_name == 'workflow_dispatch':
-    inputs = event.get('inputs', {})
-    prompt = inputs.get('prompt', '') or ''
-    spec_path = inputs.get('spec_path', '') or ''
-    wait_flag = 'true' if str(inputs.get('wait', 'true')).lower() != 'false' else 'false'
-    should_run = True
-else:
-    issue = event.get('issue') or {}
-    labels = {label.get('name', '').lower() for label in issue.get('labels', [])}
-    body = issue.get('body') or ''
-    title = issue.get('title') or ''
-    trigger = '/run-codegen' in body.lower() or 'codegen' in labels
-    should_run = bool(trigger)
-    if should_run:
-        fence = re.search(r"```prompt\n([\s\S]*?)```", body, re.IGNORECASE)
-        if fence:
-            prompt = fence.group(1).strip()
-        else:
-            prompt = f"Issue: {title}\n\n{body.strip()}".strip()
-        match = re.search(r"^spec_path\s*:\s*(.+)$", body, re.IGNORECASE | re.MULTILINE)
-        if match:
-            spec_path = match.group(1).strip()
-    else:
-        print('::notice::Issue missing codegen label or /run-codegen command; skipping.')
+          if event_name == 'workflow_dispatch':
+              inputs = event.get('inputs', {})
+              prompt = inputs.get('prompt', '') or ''
+              spec_path = inputs.get('spec_path', '') or ''
+              wait_flag = 'true' if str(inputs.get('wait', 'true')).lower() != 'false' else 'false'
+              should_run = True
+          else:
+              issue = event.get('issue') or {}
+              labels = {label.get('name', '').lower() for label in issue.get('labels', [])}
+              body = issue.get('body') or ''
+              title = issue.get('title') or ''
+              trigger = '/run-codegen' in body.lower() or 'codegen' in labels
+              should_run = bool(trigger)
+              if should_run:
+                  fence = re.search(r"```prompt\n([\s\S]*?)```", body, re.IGNORECASE)
+                  if fence:
+                      prompt = fence.group(1).strip()
+                  else:
+                      prompt = f"Issue: {title}\n\n{body.strip()}".strip()
+                  match = re.search(r"^spec_path\s*:\s*(.+)$", body, re.IGNORECASE | re.MULTILINE)
+                  if match:
+                      spec_path = match.group(1).strip()
+              else:
+                  print('::notice::Issue missing codegen label or /run-codegen command; skipping.')
 
-output_path = os.environ['GITHUB_OUTPUT']
-with open(output_path, 'a', encoding='utf-8') as fh:
-    fh.write(f"should_run={'true' if should_run else 'false'}\n")
-    fh.write(f"prompt<<EOF\n{prompt}\nEOF\n")
-    fh.write(f"spec_path={spec_path}\n")
-    fh.write(f"wait={wait_flag}\n")
-PY
+          output_path = os.environ['GITHUB_OUTPUT']
+          with open(output_path, 'a', encoding='utf-8') as fh:
+              fh.write(f"should_run={'true' if should_run else 'false'}\n")
+              fh.write(f"prompt<<EOF\n{prompt}\nEOF\n")
+              fh.write(f"spec_path={spec_path}\n")
+              fh.write(f"wait={wait_flag}\n")
+          PY
 
   codegen:
     name: Run Codegen from issue
