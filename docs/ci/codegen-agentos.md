@@ -4,7 +4,7 @@ This guide walks through managing Codegen runs with the new Spec-Driven Design (
 
 ## 1. Prerequisites
 - GitHub Actions secrets: `CODEGEN_ORG_ID`, `CODEGEN_TOKEN`, optionally `CODEGEN_REPO_ID`.
-- The workflow now auto-discovers the Codegen repo id and writes it to `.codegen/repo-id` at runtime (you can still override with the `CODEGEN_REPO_ID` secret or a committed file when needed).
+- The workflow now auto-discovers the Codegen repo id and writes it to `.codegen/repos/<owner>/<repo>/repo-id` (per repository) at runtime. You can still override the id with the `CODEGEN_REPO_ID` secret or by committing the cache file when needed.
 
 ## 2. Authoring Specs
 1. Copy the templates in `.sdd/templates/` into a new folder named `<YYYY-MM-DD>-<spec-name>/` under `.sdd/specs/`.
